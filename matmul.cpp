@@ -3,18 +3,25 @@
 #include <cstdio>
 #include <cstdlib>
 #include <omp.h>
-#include <magma_v2.h>
+#include <commons.hpp>
+
+#include <cuda_runtime_api.h>
+#include <cublas_v2.h>
+#include <mkl.h>
 
 int32_t main() {
-  magma_init();
+  cudaStream_t stream;
+  cublasHandle_t handle;
+  cudaStreamCreate(&stream);
+  cublasCreate(&handle);
+  cublasSetStream(handle, stream);
+
   const int64_t m = 1024, n = m, k = m;
-  magma_queue_t queue = nullptr;
-  magma_queue_create(0, &queue);
 
   double* d_A, * d_B, * d_C;
-  magma_dmalloc(&d_A, m * k);
-  magma_dmalloc(&d_B, k * n);
-  magma_dmalloc(&d_C, m * n);
+  cudaMallocManaged(reinterpret_cast<void**>(&d_A), m * k * sizeof(double), cudaMemAttachGlobal);
+  cudaMallocManaged(reinterpret_cast<void**>(&d_B), k * n * sizeof(double), cudaMemAttachGlobal);
+  cudaMallocManaged(reinterpret_cast<void**>(&d_C), m * n * sizeof(double), cudaMemAttachGlobal);
 
   int64_t flops = m * n * k * 2;
   int32_t loops = 300;
@@ -23,25 +30,17 @@ int32_t main() {
 
   double start = omp_get_wtime();
   for (int32_t i = 0; i < loops; ++i)
-    magma_dgemm(MagmaNoTrans, MagmaNoTrans, m, n, k, alpha, d_A, m, d_B, k, beta, d_C, m, queue);
-  magma_queue_sync(queue);
+    cublasDgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, d_A, m, d_B, k, &beta, d_C, m);
+  cudaDeviceSynchronize();
   double end = omp_get_wtime();
 
   printf("time: %f ms. GFLOPS: %f\n", (end - start) * 1000, gflops / (end - start));
 
-  start = omp_get_wtime();
-  for (int32_t i = 0; i < loops; ++i)
-    magmablas_dgemm(MagmaNoTrans, MagmaNoTrans, m, n, k, alpha, d_A, m, d_B, k, beta, d_C, m, queue);
-  magma_queue_sync(queue);
-  end = omp_get_wtime();
+  cudaFree(d_A);
+  cudaFree(d_B);
+  cudaFree(d_C);
 
-  printf("time: %f ms. GFLOPS: %f\n", (end - start) * 1000, gflops / (end - start));
-
-  magma_free(d_A);
-  magma_free(d_B);
-  magma_free(d_C);
-
-  magma_queue_destroy(queue);
-  magma_finalize();
+  cudaStreamDestroy(stream);
+  cublasDestroy(handle);
   return 0;
 }
