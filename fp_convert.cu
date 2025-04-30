@@ -23,11 +23,11 @@ int32_t main() {
   cublasCreate(&handle);
   cublasSetStream(handle, stream);
 
-  int64_t len = 10000000;
+  int64_t len = 1000000;
   int32_t loops = 10;
   std::vector<double> hostVec(len);
 
-  random_vector(len * 2, (double*)hostVec.data());
+  random_vector(len, (double*)hostVec.data());
 
   double* hostVecPin = nullptr, *devVecDouble = nullptr, start, lapse, Gb = 1.e-9 * len * sizeof(double) * loops;
   float* devVecFloat = nullptr, nrm;

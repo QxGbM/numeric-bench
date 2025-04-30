@@ -16,7 +16,7 @@ find_package(CUDAToolkit REQUIRED)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 add_compile_options("-Wall" "-Wextra" "-fexceptions" "$<$<CONFIG:DEBUG>:-O0;-g3;-ggdb>" "$<$<CONFIG:RELEASE>:-O3>")
-link_libraries(OpenMP::OpenMP_CXX MKL::MKL Eigen3::Eigen CUDA::cudart CUDA::cublas)
+link_libraries(OpenMP::OpenMP_CXX MKL::MKL Eigen3::Eigen CUDA::cudart CUDA::cublas CUDA::cusolver)
 
 file(GLOB sources "*.cpp" "*.cu")
 enable_testing()
