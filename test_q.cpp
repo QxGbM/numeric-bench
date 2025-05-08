@@ -1,12 +1,5 @@
-#include <iostream>
-#include <complex>
-#include <random>
-#include <commons.hpp>
 
-#define MKL_COMPLEX_16 std::complex<double>
-#define EIGEN_USE_MKL
-#include <mkl.h>
-#include <eigen3/Eigen/Dense>
+#include <commons.hpp>
 
 int main() {
   int M = 100;

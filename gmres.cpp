@@ -1,14 +1,4 @@
-#include <iostream>
-#include <cmath>
-#include <vector>
-#include <random>
-#include <complex>
 #include <commons.hpp>
-
-#define MKL_COMPLEX_16 std::complex<double>
-#define EIGEN_USE_MKL
-#include <mkl.h>
-#include <eigen3/Eigen/Dense>
 
 // https://math.nist.gov/iml++/gmres.h.txt
 

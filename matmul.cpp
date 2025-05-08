@@ -1,13 +1,5 @@
 
-#include <cstdint>
-#include <cstdio>
-#include <cstdlib>
-#include <omp.h>
 #include <commons.hpp>
-
-#include <cuda_runtime_api.h>
-#include <cublas_v2.h>
-#include <mkl.h>
 
 int32_t main() {
   cudaStream_t stream;

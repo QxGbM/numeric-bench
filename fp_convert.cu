@@ -1,15 +1,5 @@
 
-#include <cstdio>
-#include <cstdlib>
-#include <omp.h>
-#include <vector>
-#include <random>
-#include <algorithm>
 #include <commons.hpp>
-
-#include <cuda_runtime_api.h>
-#include <cublas_v2.h>
-#include <mkl.h>
 #include <thrust/transform.h>
 
 struct op {
