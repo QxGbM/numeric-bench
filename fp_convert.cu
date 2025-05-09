@@ -7,6 +7,7 @@ struct op {
 };
 
 int32_t main() {
+  cudaSetDevice(0);
   cudaStream_t stream;
   cublasHandle_t handle;
   cudaStreamCreate(&stream);
