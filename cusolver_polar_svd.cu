@@ -51,8 +51,8 @@ int32_t main() {
   int32_t* info;
 
   cusolverDnCreateParams(&params);
-  auto status = cusolverDnXgesvd_bufferSize(cusolverH, params, 'S', 'S', M, N, CUDA_C_32F, fmat_dev, M, CUDA_R_32F, fsvec_dev, CUDA_C_32F, fumat_dev, M, CUDA_C_32F, fvmat_dev, N, CUDA_C_32F, &fwork_dev_size, &fwork_host_size);
-  cusolverDnXgesvd_bufferSize(cusolverH, params, 'S', 'S', M, N, CUDA_C_64F, dmat_dev, M, CUDA_R_64F, dsvec_dev, CUDA_C_64F, dumat_dev, M, CUDA_C_64F, dvmat_dev, N, CUDA_C_64F, &dwork_dev_size, &dwork_host_size);
+  cusolverDnXgesvdp_bufferSize(cusolverH, params, CUSOLVER_EIG_MODE_VECTOR, 1, M, N, CUDA_C_32F, fmat_dev, M, CUDA_R_32F, fsvec_dev, CUDA_C_32F, fumat_dev, M, CUDA_C_32F, fvmat_dev, N, CUDA_C_32F, &fwork_dev_size, &fwork_host_size);
+  cusolverDnXgesvdp_bufferSize(cusolverH, params, CUSOLVER_EIG_MODE_VECTOR, 1, M, N, CUDA_C_64F, dmat_dev, M, CUDA_R_64F, dsvec_dev, CUDA_C_64F, dumat_dev, M, CUDA_C_64F, dvmat_dev, N, CUDA_C_64F, &dwork_dev_size, &dwork_host_size);
 
   std::complex<float>* fwork_dev = nullptr, *fwork_host = nullptr;
   std::complex<double>* dwork_dev = nullptr, *dwork_host = nullptr;
@@ -72,28 +72,29 @@ int32_t main() {
   std::generate((double*)dmat_dev, (double*)&dmat_dev[M * N], [&]() { return dist(gen); });
 
   int32_t loops = 5;
+  double h_err = 0.;
   double start, lapse, gf = 2.e-9 * flops * loops;
   cudaDeviceSynchronize();
   start = omp_get_wtime();
 
   for (int32_t i = 0; i < loops; ++i) {
-    cusolverDnXgesvd(cusolverH, params, 'S', 'S', M, N, CUDA_C_64F, dmat_dev, M, CUDA_R_64F, dsvec_dev, CUDA_C_64F, dumat_dev, M, CUDA_C_64F, dvmat_dev, N, CUDA_C_64F, dwork_dev, dwork_dev_size, dwork_host, dwork_host_size, info);
+    cusolverDnXgesvdp(cusolverH, params, CUSOLVER_EIG_MODE_VECTOR, 1, M, N, CUDA_C_64F, dmat_dev, M, CUDA_R_64F, dsvec_dev, CUDA_C_64F, dumat_dev, M, CUDA_C_64F, dvmat_dev, N, CUDA_C_64F, dwork_dev, dwork_dev_size, dwork_host, dwork_host_size, info, &h_err);
   }
 
   cudaDeviceSynchronize();
   lapse = omp_get_wtime() - start;
-  printf("<zgesvd> time: %f ms. Gflops: %f\n", lapse * 1000, gf / lapse);
+  printf("<zgesvd> time: %f ms. Gflops: %f, H_ERR: %e\n", lapse * 1000, gf / lapse, h_err);
 
   start = omp_get_wtime();
 
   for (int32_t i = 0; i < loops; ++i) {
-    cusolverDnXgesvd(cusolverH, params, 'S', 'S', M, N, CUDA_C_32F, fmat_dev, M, CUDA_R_32F, fsvec_dev, CUDA_C_32F, fumat_dev, M, CUDA_C_32F, fvmat_dev, N, CUDA_C_32F, fwork_dev, fwork_dev_size, fwork_host, fwork_host_size, info);
+    cusolverDnXgesvdp(cusolverH, params, CUSOLVER_EIG_MODE_VECTOR, 1, M, N, CUDA_C_32F, fmat_dev, M, CUDA_R_32F, fsvec_dev, CUDA_C_32F, fumat_dev, M, CUDA_C_32F, fvmat_dev, N, CUDA_C_32F, fwork_dev, fwork_dev_size, fwork_host, fwork_host_size, info, &h_err);
   }
 
   cudaDeviceSynchronize();
   lapse = omp_get_wtime() - start;
 
-  printf("<cgesvd> time: %f ms. Gflops: %f\n", lapse * 1000, gf / lapse);
+  printf("<cgesvd> time: %f ms. Gflops: %f, H_ERR: %e\n", lapse * 1000, gf / lapse, h_err);
 
   cudaFree(fmat_dev);
   cudaFree(fumat_dev);
