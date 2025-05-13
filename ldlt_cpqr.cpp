@@ -2,55 +2,59 @@
 #include <commons.hpp>
 
 int32_t main() {
-  mkl_verbose(1);
-  int64_t M = 800, N = 100;
+  mkl_verbose(0);
+  int64_t M = 2400, N = 100;
   Eigen::MatrixXcd matA(M, N);
   random_vector(M * N * 2, (double*)matA.data());
 
-  matA /= matA.norm();
   Eigen::MatrixXcd AAT = matA.adjoint() * matA;
-
   for (int32_t i = 0; i < 5; ++i) {
     AAT /= AAT.norm();
     AAT = AAT.adjoint() * AAT;
   }
+
   matA = matA * AAT;
+  matA /= matA.norm();
   AAT = matA.adjoint() * matA;
 
-  double epi = 1.e-7;
-  Eigen::LDLT<Eigen::MatrixXcd, Eigen::Upper> ldlt(AAT);
-  Eigen::MatrixXcd ldl = ldlt.matrixLDLT();
-  auto piv = ldlt.transpositionsP().indices();
-  int32_t rank = 0;
-  double s0 = ldl(0, 0).real();
-  for (int32_t i = 0; i < std::min(M, N); ++i)
-    if (epi <= std::sqrt(ldl(i, i).real() / s0))
-      rank = i + 1;
+  double epi = 1.e-5;
+  Eigen::MatrixXcd ldl = AAT;
+  Eigen::MatrixXcd ax(N, N);
+  std::vector<int32_t> piv(N);
+
+  int32_t k = std::min(M, N), rank = k;
+  double s0 = 0.;
+  for (int32_t i = 0; i < rank; ++i) {
+    int32_t id = cblas_izamax(k, ldl.data(), k + 1);
+    ax.col(i) = ldl.col(id);
+    double s = -1. / ldl(id, id).real();
+    ldl += s * ax.col(i) * ax.col(i).adjoint();
+    piv[i] = id;
+
+    if (i == 0)
+      s0 = ax(id, i).real();
+    if (std::sqrt(ax(id, i).real() / s0) < epi)
+      rank = i;
+  }
+
+  Eigen::MatrixXcd l(rank, rank);
+  for (int32_t i = 0; i < rank; ++i)
+    l.row(i) = ax.row(piv[i]).leftCols(rank);
+  std::complex<double> alpha = 1.;
+  cblas_ztrsm(CblasColMajor, CblasRight, CblasLower, CblasNoTrans, CblasNonUnit, k, rank, &alpha, l.data(), rank, ax.data(), k);
+
+  Eigen::MatrixXcd As(M, rank);
+  for (int32_t i = 0; i < rank; ++i)
+    As.col(i) = matA.col(piv[i]);
+
+  std::cout << "id error: " << (matA - As * ax.leftCols(rank).adjoint()).norm() / matA.norm() << std::endl;
 
   Eigen::ColPivHouseholderQR<Eigen::MatrixXcd> cpqr(matA);
   Eigen::MatrixXcd qr = cpqr.matrixQR();
   auto cp = cpqr.colsPermutation().indices();
   cpqr.setThreshold(epi);
 
-  for (int32_t i = 0; i < N; ++i)
-    std::cout << std::sqrt(ldl(i, i).real()) << ", " << piv(i) << ", " << qr(i, i).real() << ", " << cp(i) << std::endl;
-
-  Eigen::FullPivLU<Eigen::MatrixXcd> lu(AAT);
-  Eigen::MatrixXcd luA = lu.matrixLU();
-
-  int32_t rank_lu = 0;
-  s0 = luA(0, 0).real();
-  for (int32_t i = 0; i < std::min(M, N); ++i)
-    if (epi <= std::sqrt(luA(i, i).real() / s0))
-      rank_lu = i + 1;
-
-  auto piv_i = lu.permutationP().indices();
-  auto piv_j = lu.permutationQ().indices();
-
-  for (int32_t i = 0; i < N; ++i)
-    std::cout << std::sqrt(luA(i, i).real()) << ", " << qr(i, i).real() << std::endl;
-
-  std::cout << "rank: " << rank << ", " << cpqr.rank() << ", " << rank_lu << std::endl;
+  std::cout << "rank id: " << rank << ", rank cpqr: " << cpqr.rank() << std::endl;
 
   return 0;
 }
