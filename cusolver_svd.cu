@@ -25,7 +25,7 @@ int32_t main() {
   cusolverDnCreate(&cusolverH);
   cusolverDnSetStream(cusolverH, stream);
 
-  int32_t M = 4000, N = std::min(M, 4000);
+  int32_t M = 800, N = std::min(M, 800);
   int64_t flops = (int64_t)N * (int64_t)N * (4 * (int64_t)M + 8 * (int64_t)N);
 
   std::cout << flops << std::endl;
@@ -82,7 +82,7 @@ int32_t main() {
 
   cudaDeviceSynchronize();
   lapse = omp_get_wtime() - start;
-  printf("<zgesvd> time: %f ms. Gflops: %f\n", lapse * 1000, gf / lapse);
+  printf("<zgesvd> time: %f ms. Gflops: %f\n", lapse * 1000 / loops, gf / lapse);
 
   start = omp_get_wtime();
 
@@ -93,7 +93,7 @@ int32_t main() {
   cudaDeviceSynchronize();
   lapse = omp_get_wtime() - start;
 
-  printf("<cgesvd> time: %f ms. Gflops: %f\n", lapse * 1000, gf / lapse);
+  printf("<cgesvd> time: %f ms. Gflops: %f\n", lapse * 1000 / loops, gf / lapse);
 
   cudaFree(fmat_dev);
   cudaFree(fumat_dev);

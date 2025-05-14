@@ -31,17 +31,27 @@ int32_t main() {
     ldl += s * ax.col(i) * ax.col(i).adjoint();
     piv[i] = id;
 
+    ax.col(i) *= -s;
+    //Eigen::MatrixXcd l = ax.row(id).leftCols(i);
+    //ax.leftCols(i) -= ax.col(i) * l;
+
     if (i == 0)
-      s0 = ax(id, i).real();
-    if (std::sqrt(ax(id, i).real() / s0) < epi)
+      s0 = -s;
+    if (std::sqrt(s0 / -s) < epi)
       rank = i;
   }
 
-  Eigen::MatrixXcd l(rank, rank);
+  for (int32_t i = rank - 1; 0 < i; --i) {
+    int32_t id = piv[i];
+    Eigen::MatrixXcd l = ax.row(id).leftCols(i);
+    ax.leftCols(i) -= ax.col(i) * l;
+  }
+
+  /*Eigen::MatrixXcd l(rank, rank);
   for (int32_t i = 0; i < rank; ++i)
     l.row(i) = ax.row(piv[i]).leftCols(rank);
   std::complex<double> alpha = 1.;
-  cblas_ztrsm(CblasColMajor, CblasRight, CblasLower, CblasNoTrans, CblasNonUnit, k, rank, &alpha, l.data(), rank, ax.data(), k);
+  cblas_ztrsm(CblasColMajor, CblasRight, CblasLower, CblasNoTrans, CblasUnit, k, rank, &alpha, l.data(), rank, ax.data(), k);*/
 
   Eigen::MatrixXcd As(M, rank);
   for (int32_t i = 0; i < rank; ++i)
