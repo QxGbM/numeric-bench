@@ -4,14 +4,20 @@ set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_BUILD_TYPE Release)
 
-project ("hyacinth" LANGUAGES CUDA)
+project ("hyacinth" LANGUAGES CXX CUDA)
 
 find_package(CUDAToolkit REQUIRED)
-
-add_library(hyacinth SHARED cpotrfp_gpu.cu)
-add_library(hyacinth_static STATIC cpotrfp_gpu.cu)
-set_target_properties(hyacinth hyacinth_static PROPERTIES CUDA_ARCHITECTURES all-major)
+set(CPP_SOURCES align_ld.cpp)
+set(CU_SOURCES cpotrfp_gpu.cu f64_i8.cu)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
-add_compile_options("-Xcompiler=-fPIC" "-Xcompiler=-Wall" "-Xcompiler=-Wextra" "-Xcompiler=-fexceptions")
 link_libraries(CUDA::cudart CUDA::cublas)
+
+set_source_files_properties(${CPP_SOURCES} PROPERTIES COMPILE_OPTIONS 
+  "-Wall;-Wextra;-fexceptions")
+set_source_files_properties(${CU_SOURCES} PROPERTIES COMPILE_OPTIONS 
+  "-Xcompiler=-Wall;-Xcompiler=-Wextra;-Xcompiler=-fexceptions")
+
+add_library(hyacinth SHARED ${CPP_SOURCES} ${CU_SOURCES})
+set_target_properties(hyacinth PROPERTIES CUDA_ARCHITECTURES all-major)
+

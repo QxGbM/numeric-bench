@@ -1,5 +1,6 @@
 
 #include <hyacinth.h>
+#include <cuda_runtime_api.h>
 #include <thrust/pair.h>
 #include <thrust/reduce.h>
 #include <thrust/iterator/transform_iterator.h>
@@ -21,8 +22,7 @@ struct Ismax {
 };
 
 int32_t cpotrfp_gpu(cublasHandle_t handle, int32_t N, const cuComplex* A, int32_t lda, int32_t* ipiv, cuComplex* X, int32_t ldx, cuComplex* work) {
-  int32_t quot = 1 + (((N & 15) - 1) >> 31);
-  int32_t ld = ((N >> 4) + quot) << 4;
+  int32_t ld = align_up(N, 8);
   if (work == nullptr)
     return ld * (N + 1);
 
