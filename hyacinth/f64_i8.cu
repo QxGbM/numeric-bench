@@ -8,9 +8,6 @@
 #include <thrust/iterator/transform_iterator.h>
 #include <thrust/iterator/counting_iterator.h>
 
-#include <vector>
-#include <complex>
-
 struct nrm_idx {
   const cuDoubleComplex* A;
   float N, rN, ld;
@@ -37,7 +34,7 @@ struct convert_f64 {
   int8_t* out;
   convert_f64(double scale, const double* in, int8_t* out) : scale(scale), in(in), out(out) {}
   __device__ void operator()(thrust::pair<int32_t, int32_t> idx) {
-    int32_t e = __double2int_rz(in[idx.first] * scale);
+    int32_t e = (int32_t)(in[idx.first] * scale);
     out[idx.second] = (int8_t)(min(max(e, -128), 127));
   }
 };
@@ -50,7 +47,7 @@ double f64_i8(cudaStream_t stream, int32_t M, int32_t N, const cuDoubleComplex* 
   auto idx_iter = thrust::make_transform_iterator(thrust::make_counting_iterator(0), nrm_idx(M, A, lda));
   double nrm = thrust::reduce(thrust::cuda::par_nosync.on(stream), idx_iter, idx_iter + (M * N), 0., thrust::maximum<double>());
 
-  auto idx2_iter = thrust::make_transform_iterator(thrust::make_counting_iterator(0), convert_idx2(M, 2 * lda, 2 * ld));
-  thrust::for_each_n(thrust::cuda::par_nosync.on(stream), idx2_iter, M * N, convert_f64(128. / nrm, (const double*)A, Ai8));
+  auto idx2_iter = thrust::make_transform_iterator(thrust::make_counting_iterator(0), convert_idx2(2 * M, 2 * lda, 2 * ld));
+  thrust::for_each_n(thrust::cuda::par_nosync.on(stream), idx2_iter, 2 * M * N, convert_f64(128. / nrm, (const double*)A, Ai8));
   return nrm / 128.;
 }
