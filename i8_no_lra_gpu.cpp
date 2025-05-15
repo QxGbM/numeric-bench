@@ -20,7 +20,7 @@ int32_t main() {
 
   cudaStream_t stream;
   cudaStreamCreate(&stream);
-  int32_t ld = (int32_t)f64_i8(stream, M, N, nullptr, M, nullptr);
+  int32_t ld = align_c_i8(M);
 
   int8_t* gpu_i8 = nullptr;
   cudaMalloc((void**)&gpu_i8, 2 * ld * N * sizeof(int8_t));
@@ -33,7 +33,7 @@ int32_t main() {
   for (int8_t i = 0; i < 10; ++i) {
     std::vector<int8_t> matAi(M * N * 2);
     cudaMemcpy(gpu_f64, matA.data(), M * N * sizeof(std::complex<double>), cudaMemcpyHostToDevice);
-    double scale = f64_i8(stream, M, N, (const cuDoubleComplex*)gpu_f64, M, gpu_i8);
+    double scale = c_f64_i8(stream, M, N, (const cuDoubleComplex*)gpu_f64, M, gpu_i8, ld);
 
     cudaStreamSynchronize(stream);
     cudaMemcpy2D(matAi.data(), 2 * M * sizeof(int8_t), gpu_i8, 2 * ld * sizeof(int8_t), 2 * M * sizeof(int8_t), N, cudaMemcpyDeviceToHost);

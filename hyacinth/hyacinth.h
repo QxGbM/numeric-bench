@@ -10,6 +10,10 @@ int32_t align_up(
   int32_t align
 );
 
+int32_t align_c_fp32(int32_t ld);
+int32_t align_c_fp64(int32_t ld);
+int32_t align_c_i8(int32_t ld);
+
 int32_t cpotrfp_gpu(
   cublasHandle_t handle,
   int32_t N,
@@ -21,11 +25,22 @@ int32_t cpotrfp_gpu(
   cuComplex* work
 );
 
-double f64_i8(
+float c_f32_i8(
+  cudaStream_t stream,
+  int32_t M,
+  int32_t N,
+  const cuComplex* A,
+  int32_t lda,
+  int8_t* Ai8,
+  int32_t ldi
+);
+
+double c_f64_i8(
   cudaStream_t stream,
   int32_t M,
   int32_t N,
   const cuDoubleComplex* A,
   int32_t lda,
-  int8_t* Ai8
+  int8_t* Ai8,
+  int32_t ldi
 );

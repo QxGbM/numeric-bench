@@ -17,7 +17,10 @@ struct Ismax {
     return thrust::pair<float, int32_t>(ptr[i * ld], i);
   }
   __device__ thrust::pair<float, int32_t> operator()(thrust::pair<float, int32_t> e1, thrust::pair<float, int32_t> e2) {
-    return e1.first < e2.first ? e2 : e1;
+    float e = fmaxf(e1.first, e2.first);
+    int32_t i1 = e1.second & ~(__float_as_int(e1.first - e) >> 31);
+    int32_t i2 = e2.second & ~(__float_as_int(e2.first - e) >> 31);
+    return thrust::pair<float, int32_t>(e, i1 | i2);
   }
 };
 
