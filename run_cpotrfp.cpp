@@ -59,7 +59,7 @@ int32_t main() {
   lapse = omp_get_wtime() - start;
   double gf = 1.e-9 * (N * rank * (N * 4 + rank * 2)) * loops;
   printf("<h-lra> time: %f ms. Gflops: %f\n", lapse * 1000 / loops, gf / lapse);
-  std::cout << rank << std::endl;
+  printf("rank is: %d\n", rank);
 
   Eigen::MatrixXcf Ax(N, rank);
   Eigen::MatrixXcf As(M, rank);
