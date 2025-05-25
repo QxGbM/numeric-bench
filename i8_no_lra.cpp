@@ -3,7 +3,7 @@
 
 void d2i(int32_t N, const double Xd[], int8_t Xi[]) {
   std::transform(Xd, &Xd[N], Xi, [](double e) { 
-    int32_t i = (int32_t)e; return (int8_t)std::min(std::max(i, -127), 127); });
+    int32_t i = (int32_t)std::roundf((float)e); return (int8_t)std::min(std::max(i, -127), 127); });
 }
 
 void i2d(int32_t N, const int8_t Xi[], double Xd[]) {
