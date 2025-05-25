@@ -18,10 +18,10 @@ int32_t main() {
   random_vector(M * N * 2, (double*)matA.data());
 
   Eigen::MatrixXcd ref = matA;
+  double nrm = matA.lpNorm<Eigen::Infinity>();
 
   for (int8_t i = 0; i < 10; ++i) {
-    double nrm = matA.lpNorm<Eigen::Infinity>();
-    Eigen::MatrixXcd matB = matA * 127. / nrm;
+    Eigen::MatrixXcd matB = matA * (127. / nrm);
 
     std::vector<int8_t> matAi(M * N * 2);
     d2i(M * N * 2, (double*)matB.data(), matAi.data());
@@ -31,6 +31,7 @@ int32_t main() {
 
     double scale = nrm / 127.;
     matA -= reA * scale;
+    nrm = scale;
     printf("iter: %d, nrm: %e, remainder: %e\n", i, scale, matA.norm() / ref.norm());
   }
   return 0;

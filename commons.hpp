@@ -15,7 +15,7 @@
 #define MKL_COMPLEX_16 std::complex<double>
 #define EIGEN_USE_MKL_ALL
 #include <mkl.h>
-#include <eigen3/Eigen/Dense>
+#include <Eigen/Dense>
 
 void random_vector(int64_t N, double X[]) {
   std::mt19937_64 gen;
