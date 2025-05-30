@@ -21,9 +21,9 @@ int32_t main() {
   Eigen::MatrixXd matR = cpqr.matrixQR();
   cpqr.setThreshold(1.e-12);
 
-  printf("rank cpqr: %d (%e, %e)\n", (int32_t)cpqr.rank(), matR(cpqr.rank() - 1, cpqr.rank() - 1), matR(0, 0));
+  printf("true rank: %d \n", (int32_t)cpqr.rank());
 
-  int32_t iters = 10, rank_tot = 0;
+  int32_t iters = 6, rank_tot = 0;
   Eigen::MatrixXd Uf(M, iters * N);
   Eigen::MatrixXd Vf(N, iters * N);
   for (int32_t i = 0; i < iters; ++i) {
@@ -51,7 +51,7 @@ int32_t main() {
     matA -= appx;
     rank_tot += rank;
 
-    printf("%d %e %e %d\n", i, (appx - matB).norm() / matB.norm(), matA.norm() / ref.norm(), rank_tot);
+    printf("iter: %d, low-precision SVD: %e, remainder norm: %e, accumulator rank: %d\n", i + 1, (appx - matB).norm() / matB.norm(), matA.norm() / ref.norm(), rank_tot);
   }
 
   Eigen::HouseholderQR<Eigen::MatrixXd> qr(Vf.leftCols(rank_tot));
