@@ -11,16 +11,8 @@ void add_f2(float& a0, float& a1) {
 }
 
 void mul_f2(float& a0, float& a1) {
-  float c = 4097.f * a0;
-  float a0_hi = c - (c - a0);
-  float a0_lo = a0 - a0_hi;
-
-  c = 4097.f * a1;
-  float a1_hi = c - (c - a1);
-  float a1_lo = a1 - a1_hi;
-
   float prod = a0 * a1;
-  float err = ((a0_hi * a1_hi - prod) + a0_hi * a1_lo + a0_lo * a1_hi) + a0_lo * a1_lo;
+  float err = std::fma(a0, a1, -prod);
   a0 = prod;
   a1 = err;
 }
@@ -28,7 +20,7 @@ void mul_f2(float& a0, float& a1) {
 int32_t main() {
   
   float x0 = 1746.1233232;
-  float x1 = 1.51231;
+  float x1 = 1.51212313123135631;
 
   double d = double(x0) * double(x1);
 
