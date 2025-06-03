@@ -21,7 +21,7 @@ void zpotrfp(int32_t N, std::complex<double>* A, int32_t lda, int32_t* ipiv) {
 
 int32_t main() {
   mkl_verbose(0);
-  int32_t M = 48, N = 10;
+  int32_t M = 300, N = 100;
   Eigen::MatrixXcd matA(M, N);
   random_vector(M * N * 2, (double*)matA.data());
 
@@ -29,12 +29,15 @@ int32_t main() {
   std::transform((double*)matA.data(), (double*)matA.data() + M * N * 2, (float*)matAf.data(), [](double e) { return float(e); });
 
   Eigen::MatrixXcf AAT = matAf.adjoint() * matAf;
-  for (int32_t i = 0; i < 5; ++i) {
+  for (int32_t i = 0; i < 4; ++i) {
     AAT /= AAT.norm();
     AAT = AAT.adjoint() * AAT;
   }
 
   matAf = matAf * AAT;
+  float scale = float(1 << 23) / matAf.lpNorm<Eigen::Infinity>();
+  std::transform((float*)matAf.data(), (float*)matAf.data() + M * N * 2, (float*)matAf.data(), [=](float e) { return std::round(scale * e); });
+
   std::transform((float*)matAf.data(), (float*)matAf.data() + M * N * 2, (double*)matA.data(), [](float e) { return double(e); });
 
   double epi = 1.e-5;
@@ -45,10 +48,10 @@ int32_t main() {
   ldl = ldl.triangularView<Eigen::Upper>();
 
   Eigen::MatrixXcf R(N, N);
-  std::transform((double*)ldl.data(), (double*)ldl.data() + N * N * 2, (float*)R.data(), [](double e) { return float(e); });
+  std::transform((double*)ldl.data(), (double*)ldl.data() + N * N * 2, (float*)R.data(), [](double e) { return float(std::round(e)); });
 
-  Eigen::ColPivHouseholderQR<Eigen::MatrixXcf> cpqr(matAf);
-  Eigen::MatrixXcf qr = cpqr.matrixQR().topRows(N).triangularView<Eigen::Upper>();
+  Eigen::ColPivHouseholderQR<Eigen::MatrixXcd> cpqr(matA);
+  Eigen::MatrixXcd qr = cpqr.matrixQR().topRows(N).triangularView<Eigen::Upper>();
   auto cp = cpqr.colsPermutation().indices();
   cpqr.setThreshold(epi);
 
@@ -56,8 +59,10 @@ int32_t main() {
     if (qr(i, i).real() < 0)
       qr.row(i) = -qr.row(i);
 
-  std::cout << (qr - R) / qr(0, 0) << std::endl;
-  std::cout << (qr - R).norm() / qr.norm() << std::endl;
+  Eigen::MatrixXcf qr_f(N, N);
+  std::transform((double*)qr.data(), (double*)qr.data() + N * N * 2, (float*)qr_f.data(), [](double e) { return float(std::round(e)); });
+
+  std::cout << (qr_f - R).norm() / qr_f.norm() << std::endl;
   std::cout <<"rank cpqr: " << cpqr.rank() << std::endl;
 
   return 0;
