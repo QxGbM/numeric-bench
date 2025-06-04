@@ -16,7 +16,7 @@ int32_t main() {
   cublasCreate(&handle);
   cublasSetStream(handle, stream);
 
-  const int64_t m = 8192, n = m, k = m;
+  const int64_t m = 4096, n = m, k = m;
 
   int8_t* d_A, * d_B;
   cuComplex* d_C;
@@ -25,7 +25,7 @@ int32_t main() {
   cudaMallocManaged(reinterpret_cast<void**>(&d_C), m * n * sizeof(cuComplex), cudaMemAttachGlobal);
 
   int64_t flops = m * n * k * 4;
-  int32_t loops = 100;
+  int32_t loops = 10;
   double gflops = flops * 1.e-9 * loops;
   std::complex<float> alpha = 1.f, beta = 0.f;
 

@@ -2,82 +2,145 @@
 #include <cstdint>
 #include <cstdio>
 #include <cmath>
-#include <quadmath.h>
 #include <vector>
 #include <algorithm>
+#include <cuda_runtime.h>
+#include <cuda_runtime_api.h>
 
-inline void two_sum(double& a0, double& a1) {
-  double sum = a0 + a1;
-  double b = (sum - a0);
-  double err = (a0 - (sum - b)) + (a1 - b);
-  a0 = sum;
-  a1 = err;
+#include <float4_fma.cuh>
+
+/*inline void two_sum_f4(float4 a0, float4 a1, float4& sum, float4& err) {
+  float4 err_x, err_y;
+  sum.x = a0.x + a1.x;
+  sum.y = a0.y + a1.y;
+  sum.z = a0.z + a1.z;
+  sum.w = a0.w + a1.w;
+
+  err_x.x = sum.x - a0.x;
+  err_x.y = sum.y - a0.y;
+  err_x.z = sum.z - a0.z;
+  err_x.w = sum.w - a0.w;
+
+  a1.x = a1.x - err_x.x;
+  a1.y = a1.y - err_x.y;
+  a1.z = a1.z - err_x.z;
+  a1.w = a1.w - err_x.w;
+
+  err_y.x = sum.x - err_x.x;
+  err_y.y = sum.y - err_x.y;
+  err_y.z = sum.z - err_x.z;
+  err_y.w = sum.w - err_x.w;
+
+  a0.x = a0.x - err_y.x;
+  a0.y = a0.y - err_y.y;
+  a0.z = a0.z - err_y.z;
+  a0.w = a0.w - err_y.w;
+
+  err.x = a0.x + a1.x;
+  err.y = a0.y + a1.y;
+  err.z = a0.z + a1.z;
+  err.w = a0.w + a1.w;
 }
 
-inline void two_prod(double& a0, double& a1) {
-  double prod = a0 * a1;
-  double err = std::fma(a0, a1, -prod);
-  a0 = prod;
-  a1 = err;
+inline void two_prod_f4(float4 a0, float4 a1, float4& prod, float4& err) {
+  prod.x = a0.x * a1.x;
+  prod.y = a0.y * a1.y;
+  prod.z = a0.z * a1.z;
+  prod.w = a0.w * a1.w;
+
+  err.x = std::fma(a0.x, a1.x, -prod.x);
+  err.y = std::fma(a0.y, a1.y, -prod.y);
+  err.z = std::fma(a0.z, a1.z, -prod.z);
+  err.w = std::fma(a0.w, a1.w, -prod.w);
 }
 
-// a = sum[i=0;i=n-1](a_i * s_i);
-inline void expansion_scale(int32_t n, double a[], double s[]) {
-  for (int32_t i = 0; i < n; ++i) {
-    two_prod(a[i], s[i]);
-    for (int32_t j = 0; j < i; ++j)
-      two_sum(a[i], s[j]);
-  }
+inline void renormalize(float4& a) {
+  float sum = a.x + a.y;
+  a.y += a.x - sum;
+  a.x = sum;
+
+  sum = a.y + a.z;
+  a.z += a.y - sum;
+  a.y = sum;
+
+  sum = a.z + a.w;
+  a.w += a.z - sum;
+  a.z = sum;
 }
 
 // a = sum[i=0;i=n-1](a_i + b_i);
-void expansion_add(int32_t n, double a[], double b[]) {
-  for (int32_t i = 0; i < n; ++i)
-    for (int32_t j = 0; j <= i; ++j)
-      two_sum(a[i], b[j]);
-  for (int32_t i = 0; i < (n - 1); ++i)
-    two_sum(a[i], a[i + 1]);
+void float4_add(float4& a, float4& b) {
+  float4 bi;
+  two_sum_f4(a, b, a, bi);
+  b = make_float4(0.f, bi.x, bi.y, bi.z);
+
+  two_sum_f4(a, b, a, bi);
+  b = make_float4(0.f, bi.x, bi.y, bi.z);
+
+  two_sum_f4(a, b, a, bi);
+  b = make_float4(0.f, bi.x, bi.y, bi.z);
+
+  two_sum_f4(a, b, a, bi);
+  b = make_float4(0.f, bi.x, bi.y, bi.z);
+  renormalize(a);
 }
 
-// c = c + sum[(i=0,j=0);(i=n-1,j=n-1)](a_i * b_j)
-void expansion_fma(int32_t n, const double a[], const double b[], double c[]) {
-  std::vector<double> i0(n), i1(n);
+void float4_fma(float4 a, float4 b, float4& c) {
+  float4 bi, prod, err;
+  bi = make_float4(b.x, b.x, b.x, b.x);
+  two_prod_f4(a, bi, prod, err);
+  float4_add(c, prod);
+  float4_add(c, err);
 
-  for (int32_t i = 0; i < n; ++i) {
-    std::copy(a, &a[n], i0.begin());
-    std::fill(i1.begin(), i1.end(), b[i]);
-    expansion_scale(n, i0.data(), i1.data());
-    expansion_add(n, c, i0.data());
-  }
-  for (int32_t i = 0; i < (n - 1); ++i)
-    two_sum(c[i], c[i + 1]);
+  bi = make_float4(b.y, b.y, b.y, b.y);
+  two_prod_f4(a, bi, prod, err);
+  float4_add(c, prod);
+  float4_add(c, err);
+
+  bi = make_float4(b.z, b.z, b.z, b.z);
+  two_prod_f4(a, bi, prod, err);
+  float4_add(c, prod);
+  float4_add(c, err);
+
+  bi = make_float4(b.w, b.w, b.w, b.w);
+  two_prod_f4(a, bi, prod, err);
+  float4_add(c, prod);
+  float4_add(c, err);
+  
+  renormalize(c);
+}*/
+
+float4 double_float4(double a) {
+  float x = float(a);
+  a -= double(x);
+  float y = float(a);
+  a -= double(y);
+  float z = float(a);
+  return float4 { x, y, z, 0.f };
 }
 
 int32_t main() {
-  __float128 x0 = 8.0Q / 3.0Q;
-  __float128 x1 = 1.0Q / 3.0Q;
-  printf("a = %.40Qf\n", x0);
-  printf("b = %.40Qf\n", x1);
+  double x0 = 8.0 / 3.0;
+  double x1 = 1.0 / 3.0;
+  printf("a = %.20lf\n", x0);
+  printf("b = %.20lf\n", x1);
 
-  __float128 d = x0 * x1;
+  double d = x0 * x1;
 
-  std::vector<double> y(3), z(3), w(3, 0.);
+  float4 y, z, w;
+  y = double_float4(x0);
+  z = double_float4(x1);
+  w = double_float4(0.);
 
-  y[0] = double(x0);
-  y[1] = double(x0 - __float128(y[0]));
-  y[2] = double(x0 - __float128(y[0]) - __float128(y[1]));
-  z[0] = double(x1);
-  z[1] = double(x1 - __float128(z[0]));
-  z[2] = double(x1 - __float128(z[0]) - __float128(z[1]));
+  printf("y = %.20e %.20e %.20e %.20e\n", y.x, y.y, y.z, y.w);
+  printf("z = %.20e %.20e %.20e %.20e\n", z.x, z.y, z.z, z.w);
 
-  printf("y = %.20e %.20e %.20e\n", y[0], y[1], y[2]);
-  printf("z = %.20e %.20e %.20e\n", z[0], z[1], z[2]);
+  w = float4_fma(y, z, w);
+  printf("w = %.20e %.20e %.20e %.20e\n", w.x, w.y, w.z, w.w);
 
-  expansion_fma(3, y.data(), z.data(), w.data());
-  printf("w = %.20e %.20e %.20e\n", w[0], w[1], w[2]);
-
-  __float128 d2 = __float128(w[0]) + __float128(w[1]) + __float128(w[2]);
-  printf("err = %.40Qe\n", (d - d2) / d);
+  double d2 = double(w.x) + double(w.y) + double(w.z) + double(w.w);
+  printf("d = %.20le\n", d2);
+  printf("err = %.20le\n", (d - d2) / d);
 
   return 0;
 }
