@@ -47,9 +47,7 @@ uint64_t fixed_point_mul_i15x4(const uint64_t* a, const uint64_t* b) {
   return c;
 }
 
-int32_t main() {
-  mkl_verbose(0);
-  
+int32_t main() {  
   double b = 1531.2345678913354632132 / 1024;
   double c = 1.;
   for (int32_t i = 0; i < 6; ++i) {

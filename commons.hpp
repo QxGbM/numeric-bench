@@ -12,9 +12,10 @@
 #include <cuda_runtime_api.h>
 #include <cublas_v2.h>
 
-#define MKL_COMPLEX_16 std::complex<double>
-#define EIGEN_USE_MKL_ALL
-#include <mkl.h>
+#define EIGEN_USE_BLAS
+#define EIGEN_USE_LAPACKE
+#include <cblas.h>
+#include <lapacke.h>
 #include <Eigen/Dense>
 
 void random_vector(int64_t N, double X[]) {

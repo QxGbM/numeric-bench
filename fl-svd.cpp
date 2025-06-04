@@ -9,7 +9,6 @@ int32_t trunc_i (int32_t i) {
 }
 
 int32_t main() {
-  mkl_verbose(0);
   int64_t M = 100, N = 800;
   Eigen::MatrixXcd matA(M, N), matU(M, M);
   random_vector(M * N * 2, (double*)matA.data());

@@ -20,7 +20,6 @@ void zpotrfp(int32_t N, std::complex<double>* A, int32_t lda, int32_t* ipiv) {
 }
 
 int32_t main() {
-  mkl_verbose(0);
   int32_t M = 300, N = 100;
   Eigen::MatrixXcd matA(M, N);
   random_vector(M * N * 2, (double*)matA.data());

@@ -12,8 +12,6 @@ void i2d(int32_t N, const int8_t Xi[], double Xd[]) {
 }
 
 int32_t main() {
-  mkl_verbose(1);
-
   int32_t M = 400, N = 40;
   Eigen::MatrixXcd matA(M, N);
   random_vector(M * N * 2, (double*)matA.data());

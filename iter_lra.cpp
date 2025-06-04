@@ -2,8 +2,6 @@
 #include <commons.hpp>
 
 int32_t main() {
-  mkl_verbose(0);
-
   int32_t M = 800, N = 100;
   Eigen::MatrixXd matA(M, N);
   random_vector(M * N, (double*)matA.data());
