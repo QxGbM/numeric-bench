@@ -15,10 +15,10 @@ float4 double_float4(double a) {
 }
 
 int32_t main() {
-  double x0 = 2.0 / 3.0;
+  double x0 = 2000.0 / 17.0;
   double x1 = 1.0 / std::sqrt(x0);
   printf("a = %.20lf\n", x0);
-  printf("b = %.20lf\n", x1);
+  printf("b = 1./sqrt(a) = %.20lf\n", x1);
 
   double d = x0 * x1 * x1;
 
@@ -28,16 +28,16 @@ int32_t main() {
   w = double_float4(0.);
   e = double_float4(0.);
 
-  printf("y = %.20e %.20e %.20e %.20e\n", y.x, y.y, y.z, y.w);
-  printf("z = %.20e %.20e %.20e %.20e\n", z.x, z.y, z.z, z.w);
+  printf("<float4> a = %.20e %.20e %.20e %.20e\n", y.x, y.y, y.z, y.w);
+  printf("<float4> b = %.20e %.20e %.20e %.20e\n", z.x, z.y, z.z, z.w);
 
   w = float4_fma(y, z, e);
   w = float4_fma(w, z, e);
-  printf("w = %.20e %.20e %.20e %.20e\n", w.x, w.y, w.z, w.w);
+  printf("<float> a*b*b = %.20e %.20e %.20e %.20e\n", w.x, w.y, w.z, w.w);
 
   double d2 = double(w.x) + double(w.y) + double(w.z) + double(w.w);
-  printf("double d = %.20le\n", d);
-  printf("float4 d = %.20le\n", d2);
+  printf("<double> a*b*b = %.20le\n", d);
+  printf("<float4 in double> a*b*b = %.20le\n", d2);
   printf("err = %.20le\n", (d - d2) / d);
 
   return 0;

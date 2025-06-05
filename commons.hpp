@@ -14,6 +14,7 @@
 
 //#define EIGEN_USE_BLAS
 //#define EIGEN_USE_LAPACKE
+#define MKL_Complex16 std::complex<double>
 #define EIGEN_USE_MKL_ALL
 //#include <cblas.h>
 //#include <lapacke.h>
