@@ -18,7 +18,7 @@ find_package(CUDAToolkit REQUIRED)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR} "~/hyacinth/")
 add_compile_options("-fexceptions" "-Wall" "-Wextra" "$<$<CONFIG:DEBUG>:-O0;-g3;-ggdb>" "$<$<CONFIG:RELEASE>:-O3>")
 link_directories("~/hyacinth/build")
-link_libraries(OpenMP::OpenMP_CXX BLAS::BLAS LAPACK::LAPACK lapacke Eigen3::Eigen CUDA::cudart CUDA::cublas CUDA::cusolver libhyacinth.so)
+link_libraries(OpenMP::OpenMP_CXX BLAS::BLAS LAPACK::LAPACK Eigen3::Eigen CUDA::cudart CUDA::cublas CUDA::cusolver libhyacinth.so)
 
 file(GLOB sources "*.cpp" "*.cu")
 enable_testing()

@@ -51,7 +51,7 @@ int32_t main() {
   double b = 1531.2345678913354632132 / 1024;
   double c = 1.;
   for (int32_t i = 0; i < 6; ++i) {
-    c = 0.5 * c * (3 - b * c * c);
+    c = c * (1.5 + (-0.5 * b) * c * c);
   }
   double d = b * c * c;
   printf("%e\n", std::abs(d - 1.));

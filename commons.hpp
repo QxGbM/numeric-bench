@@ -12,10 +12,12 @@
 #include <cuda_runtime_api.h>
 #include <cublas_v2.h>
 
-#define EIGEN_USE_BLAS
-#define EIGEN_USE_LAPACKE
-#include <cblas.h>
-#include <lapacke.h>
+//#define EIGEN_USE_BLAS
+//#define EIGEN_USE_LAPACKE
+#define EIGEN_USE_MKL_ALL
+//#include <cblas.h>
+//#include <lapacke.h>
+#include <mkl.h>
 #include <Eigen/Dense>
 
 void random_vector(int64_t N, double X[]) {
