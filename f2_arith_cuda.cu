@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include <float4_fma.cuh>
+#include <float4_host.hpp>
 #include <cuda_runtime_api.h>
 
 float4 double_float4(double a) {
@@ -15,22 +16,19 @@ float4 double_float4(double a) {
   return float4 { x, y, z, 0.f };
 }
 
-__global__ void rsqrt_kernel(float4 a, float4* res) {
-  *res = float4_reciprocal(a);
-}
-
-__global__ void amulb_kernel(float4 a, float4 b, float4* res) {
+__global__ void abb_kernel(float4 a, float4 b, float4* res) {
   float4 z = make_float4(0.f, 0.f, 0.f, 0.f);
-  *res = float4_fma(a, b, z);
+  float4 c = device::f4::fma(a, b, z);
+  *res = device::f4::fma(c, b, z);
 }
 
 int32_t main() {
-  double x0 = 2000.0 / 17.0;
-  double x1 = 1.0 / x0;
+  double x0 = 2000.0 / 19.0;
+  double x1 = 1.0 / std::sqrt(x0);
   printf("a = %.20lf\n", x0);
   printf("b = 1./sqrt(a) = %.20lf\n", x1);
 
-  double d = x0 * x1;
+  double d = x0 * x1 * x1;
 
   float4 *y, *z, *w;
   cudaMallocManaged((void**)&y, sizeof(float) * 4, cudaMemAttachGlobal);
@@ -38,16 +36,13 @@ int32_t main() {
   cudaMallocManaged((void**)&w, sizeof(float) * 4, cudaMemAttachGlobal);
 
   *y = double_float4(x0);
-  *z = double_float4(x1);
+  *z = host::f4::rsqrt(*y);
   *w = double_float4(0.);
-
-  rsqrt_kernel <<< 1, 1 >>> (*y, z);
-  cudaDeviceSynchronize();
 
   printf("<float4> a = %.20e %.20e %.20e %.20e\n", y->x, y->y, y->z, y->w);
   printf("<float4> b = %.20e %.20e %.20e %.20e\n", z->x, z->y, z->z, z->w);
 
-  amulb_kernel <<< 1, 1 >>> (*y, *z, w);
+  abb_kernel <<< 1, 1 >>> (*y, *z, w);
   cudaDeviceSynchronize();
 
   printf("<float4> a*b*b = %.20e %.20e %.20e %.20e\n", w->x, w->y, w->z, w->w);

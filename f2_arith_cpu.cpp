@@ -3,7 +3,7 @@
 #include <cstdio>
 #include <cmath>
 
-#include <float4_fma.cuh>
+#include <float4_host.hpp>
 
 float4 double_float4(double a) {
   float x = float(a);
@@ -15,22 +15,24 @@ float4 double_float4(double a) {
 }
 
 int32_t main() {
-  double x0 = 2000.0 / 17.0;
-  double x1 = 1.0 / x0;
+  double x0 = 2000.0 / 19.0;
+  double x1 = 1.0 / std::sqrt(x0);
   printf("a = %.20lf\n", x0);
   printf("b = 1./sqrt(a) = %.20lf\n", x1);
 
-  double d = x0 * x1;
+  double d = x0 * x1 * x1;
 
-  float4 y, z, w;
+  float4 y, z, w, e;
   y = double_float4(x0);
-  z = float4_reciprocal(y);
+  z = host::f4::rsqrt(y);
   w = double_float4(0.);
+  e = double_float4(0.);
 
   printf("<float4> a = %.20e %.20e %.20e %.20e\n", y.x, y.y, y.z, y.w);
   printf("<float4> b = %.20e %.20e %.20e %.20e\n", z.x, z.y, z.z, z.w);
 
-  w = float4_fma(y, z, w);
+  w = host::f4::fma(y, z, e);
+  w = host::f4::fma(w, z, e);
   printf("<float> a*b*b = %.20e %.20e %.20e %.20e\n", w.x, w.y, w.z, w.w);
 
   double d2 = double(w.x) + double(w.y) + double(w.z) + double(w.w);
