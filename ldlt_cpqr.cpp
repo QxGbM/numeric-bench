@@ -5,15 +5,25 @@ void zpotrfp(int32_t N, std::complex<double>* A, int32_t lda, int32_t* ipiv) {
   const std::complex<double> minus_one(-1., 0.);
   for (int32_t i = 0; i < N; ++i) {
     int32_t id = i + cblas_izamax(N - i, &A[i * (lda + 1)], lda + 1);
-    cblas_zswap(N, &A[i], lda, &A[id], lda);
-    cblas_zswap(N, &A[i * lda], 1, &A[id * lda], 1);
-    double s = std::sqrt(A[i * (lda + 1)].real());
+    double s = std::sqrt(A[id * (lda + 1)].real());
+    std::vector<std::complex<double>> v1(N), v2(N);
+    cblas_zcopy(N, &A[i * lda], 1, v1.data(), 1);
+    cblas_zcopy(N, &A[id * lda], 1, v2.data(), 1);
+    std::iter_swap(v1.begin() + i, v1.begin() + id);
+    std::iter_swap(v2.begin() + i, v2.begin() + id);
+
+    cblas_zdscal(1, 1. / s, &v1[i], 1);
+    cblas_zdscal(N - i, 1. / s, &v2[i], 1);
+    cblas_zcopy(N, v1.data(), 1, &A[id * lda], 1);
+    cblas_zcopy(N, v2.data(), 1, &A[i * lda], 1);
+
+    std::transform(v1.begin(), v1.end(), v1.begin(), [](std::complex<double> e) { return std::conj(e); });
+    std::transform(v2.begin(), v2.end(), v2.begin(), [](std::complex<double> e) { return std::conj(e); });
+    cblas_zcopy(N, v1.data(), 1, &A[id], lda);
+    cblas_zcopy(N, v2.data(), 1, &A[i], lda);
 
     ipiv[i] = id;
-    A[i * (lda + 1)] = s;
     if (i + 1 != N) {
-      cblas_zdscal(N - i - 1, 1. / s, &A[i * lda + (i + 1)], 1);
-      cblas_zdscal(N - i - 1, 1. / s, &A[(i + 1) * lda + i], lda);
       cblas_zgerc(CblasColMajor, N - i - 1, N - i - 1, &minus_one, &A[i * lda + (i + 1)], 1, &A[i * lda + (i + 1)], 1, &A[(i + 1) * (lda + 1)], lda);
     }
   }
