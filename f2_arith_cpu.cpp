@@ -3,7 +3,7 @@
 #include <cstdio>
 #include <cmath>
 
-#include <float4_host.hpp>
+#include <float4.hpp>
 
 float4 double_float4(double a) {
   float x = float(a);
