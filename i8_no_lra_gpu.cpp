@@ -1,6 +1,6 @@
 
 #include <commons.hpp>
-#include <hyacinth.h>
+#include <hyacinth.hpp>
 
 void d2i(int32_t N, const double Xd[], int8_t Xi[]) {
   std::transform(Xd, &Xd[N], Xi, [](double e) { 

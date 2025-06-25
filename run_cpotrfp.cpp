@@ -1,6 +1,6 @@
 
 
-#include <hyacinth.h>
+#include <hyacinth.hpp>
 #include <commons.hpp>
 #include <omp.h>
 #include <iostream>

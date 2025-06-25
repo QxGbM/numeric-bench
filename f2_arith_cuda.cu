@@ -4,7 +4,7 @@
 #include <cmath>
 
 #include <float4.hpp>
-#include <hyacinth.h>
+#include <hyacinth.hpp>
 #include <cuda_runtime_api.h>
 
 float4 double_float4(double a) {
