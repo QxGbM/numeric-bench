@@ -1,79 +1,87 @@
 
-
-#include <hyacinth.hpp>
 #include <commons.hpp>
-#include <omp.h>
-#include <iostream>
-#include <algorithm>
-#include <random>
-#include <vector>
-#include <complex>
+#include <hyacinth.hpp>
+
+// Complex-Cholesky factorization with diagonal pivoting
+void zpotrfp(int32_t N, std::complex<double>* A, int32_t lda, int32_t* ipiv) {
+  std::vector<double> diag(N); // copy out diagonals of A, for faster imax
+  for (int32_t i = 0; i < N; ++i)
+    diag[i] = A[i * (lda + 1)].real();
+
+  for (int32_t i = 0; i < 2; ++i) {
+    int32_t id = i; // izmax, assumes diagonal are always positive, skip LAPACK pos-def checks
+    for (int32_t j = i + 1; j < N; ++j)
+      if (diag[id] < diag[j])
+        id = j;
+    
+    double s = 1. / std::sqrt(diag[id]); // rsqrt of diagonal
+    ipiv[i] = id + 1; // record pivot
+
+    if (i != id) {
+      std::iter_swap(&diag[i], &diag[id]);
+      std::iter_swap(&A[i + i * lda], &A[id + i * lda]);
+      std::iter_swap(&A[i + id * lda], &A[id + id * lda]); // for diagonal and both columns, exchange only the row element
+      for (int32_t j = 0; j < N; ++j) // exchange column i with column id
+        std::iter_swap(&A[j + i * lda], &A[j + id * lda]);
+      for (int32_t j = 0; j < N; ++j) // write row id with entries inside column id
+        A[id + j * lda] = std::conj(A[j + id * lda]);
+      // delay write to row i as column i will be updated immediately after
+    }
+
+    for (int32_t j = i; j < N; ++j) // left-looking Cholesky factorization, delay update to column i (exchanged) till current iteration
+      for (int32_t k = 0; k < i; ++k) // access the upper triangular part of A so that the dot-prod is coalescing
+        A[j + i * lda] -= std::conj(A[k + j * lda]) * A[k + i * lda];
+      
+    for (int32_t j = i; j < N; ++j) // divide by diagonal element
+      A[j + i * lda] *= s;
+
+    for (int32_t j = 0; j < N; ++j) // now write row i with updated column i
+      A[i + j * lda] = std::conj(A[j + i * lda]);
+
+    for (int32_t j = i; j < N; ++j) { // update the diagonal entries (only real part), skip [0, i] as they will not be in the next pivoting selections
+      double rl = A[j + i * lda].real();
+      double im = A[j + i * lda].imag();
+      diag[j] += -rl * rl - im * im;
+    }
+  }
+}
 
 int32_t main() {
-  auto err = cudaSetDevice(0);
-  if (err != cudaSuccess)
-  { fprintf(stderr, "%s\n", cudaGetErrorString(err)); return -1; }
-  
-  cudaStream_t stream;
-  cublasHandle_t cublasH;
-  cudaStreamCreate(&stream);
-  cublasCreate(&cublasH);
-  cublasSetStream(cublasH, stream);
-
-  int64_t M = 4000, N = 800;
-  Eigen::MatrixXcd matA(M, N);
-  random_vector(M * N * 2, (double*)matA.data());
-  Eigen::MatrixXcf matAf(M, N);
-  for (int32_t j = 0; j < N; ++j)
-    for (int32_t i = 0; i < M; ++i)
-      matAf(i, j) = std::complex<float>(matA(i,j).real(), matA(i, j).imag());
-
-  Eigen::MatrixXcf AAT = matAf.adjoint() * matAf;
-  for (int32_t i = 0; i < 5; ++i) {
-    AAT /= AAT.norm();
-    AAT = AAT.adjoint() * AAT;
+  int32_t N = 10;
+  Eigen::MatrixXcd matA(N, N);
+  random_vector(N * N * 2, (double*)matA.data());
+  for (int32_t i = 0; i < N; ++i) {
+    for (int32_t j = 0; j < i; ++j)
+      matA(j, i) = std::conj(matA(i, j));
+    matA(i, i) = std::complex<double>(1.e3+i, 0.);
   }
 
-  matAf = matAf * AAT;
-  matAf /= matAf.norm();
-  AAT = matAf.adjoint() * matAf;
-
-  std::complex<float>* fmat_dev = nullptr, *xmat_dev = nullptr, *work_dev = nullptr;
+  Eigen::MatrixXcd matB = matA;
   std::vector<int32_t> ipiv(N);
-  cudaMalloc((void**)&fmat_dev, N * N * sizeof(std::complex<float>));
-  cudaMalloc((void**)&xmat_dev, N * N * sizeof(std::complex<float>));
+  zpotrfp(N, matB.data(), N, ipiv.data());
 
-  cudaMemcpy(fmat_dev, AAT.data(), N * N * sizeof(std::complex<float>), cudaMemcpyHostToDevice);
+  //std::cout << matA << std::endl;
 
-  int32_t work = cpotrfp_gpu(cublasH, N, nullptr, N, nullptr, nullptr, N, nullptr);
-  cudaMalloc((void**)&work_dev, work * sizeof(std::complex<float>));
+  cudaStream_t stream;
+  cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
 
-  double start, lapse;
-  int32_t loops = 5, rank = 0;
-  start = omp_get_wtime();
+  std::complex<double>* d_A;
+  cudaMallocManaged(reinterpret_cast<void**>(&d_A), (N + 1) * N * sizeof(std::complex<double>), cudaMemAttachGlobal);
+  cudaMemcpy(d_A, matA.data(), N * N * sizeof(std::complex<double>), cudaMemcpyDefault);
 
-  for (int32_t i = 0; i < loops; ++i)
-    rank = cpotrfp_gpu(cublasH, N, (cuComplex*)fmat_dev, N, ipiv.data(), (cuComplex*)xmat_dev, N, (cuComplex*)work_dev);
-  
+  zpotrfp_gpu(stream, N, d_A, N, ipiv.data());
   cudaDeviceSynchronize();
-  lapse = omp_get_wtime() - start;
-  double gf = 1.e-9 * (N * rank * (N * 4 + rank * 2)) * loops;
-  printf("<h-lra> time: %f ms. Gflops: %f\n", lapse * 1000 / loops, gf / lapse);
-  printf("rank is: %d\n", rank);
 
-  Eigen::MatrixXcf Ax(N, rank);
-  Eigen::MatrixXcf As(M, rank);
-  for (int32_t i = 0; i < rank; ++i)
-    As.col(i) = matAf.col(ipiv[i]);
-  
-  cudaMemcpy(Ax.data(), xmat_dev, N * rank * sizeof(std::complex<float>), cudaMemcpyDeviceToHost);
-  std::cout << "id error: " << (matAf - As * Ax.adjoint()).norm() / matAf.norm() << std::endl;
+  cudaMemcpy(matA.data(), d_A, N * N * sizeof(std::complex<double>), cudaMemcpyDefault);
 
-  cudaFree(fmat_dev);
-  cudaFree(xmat_dev);
-  cudaFree(work_dev);
+  std::cout << matA << std::endl << std::endl;
 
+  Eigen::MatrixXcd matLB = matB.triangularView<Eigen::Upper>();
+  std::cout << matB << std::endl << std::endl;
+
+  std::cout << (matA - matB).norm() / matB.norm() << std::endl;
+
+  cudaFree(d_A);
   cudaStreamDestroy(stream);
-  cublasDestroy(cublasH);
   return 0;
 }

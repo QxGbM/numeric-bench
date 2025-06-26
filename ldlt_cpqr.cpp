@@ -14,7 +14,7 @@ void zpotrfp(int32_t N, std::complex<double>* A, int32_t lda, int32_t* ipiv) {
         id = j;
     
     double s = 1. / std::sqrt(diag[id]); // rsqrt of diagonal
-    ipiv[i] = id; // record pivot
+    ipiv[i] = id + 1; // record pivot
 
     if (i != id) {
       std::iter_swap(&diag[i], &diag[id]);
@@ -37,7 +37,7 @@ void zpotrfp(int32_t N, std::complex<double>* A, int32_t lda, int32_t* ipiv) {
     for (int32_t j = 0; j < N; ++j) // now write row i with updated column i
       A[i + j * lda] = std::conj(A[j + i * lda]);
 
-    for (int32_t j = i + 1; j < N; ++j) { // update the diagonal entries (only real part), skip [0, i] as they will not be in the next pivoting selections
+    for (int32_t j = i; j < N; ++j) { // update the diagonal entries (only real part), skip [0, i] as they will not be in the next pivoting selections
       double rl = A[j + i * lda].real();
       double im = A[j + i * lda].imag();
       diag[j] += -rl * rl - im * im;
@@ -64,46 +64,6 @@ int32_t main() {
 
   Eigen::MatrixXcd matLB = matB.triangularView<Eigen::Upper>();
   std::cout << matLB.adjoint()*matLB << std::endl;
-
-  /*Eigen::MatrixXcf matAf(M, N);
-  std::transform((double*)matA.data(), (double*)matA.data() + M * N * 2, (float*)matAf.data(), [](double e) { return float(e); });
-
-  Eigen::MatrixXcf AAT = matAf.adjoint() * matAf;
-  for (int32_t i = 0; i < 4; ++i) {
-    AAT /= AAT.norm();
-    AAT = AAT.adjoint() * AAT;
-  }
-
-  matAf = matAf * AAT;
-  float scale = float(1 << 23) / matAf.lpNorm<Eigen::Infinity>();
-  std::transform((float*)matAf.data(), (float*)matAf.data() + M * N * 2, (float*)matAf.data(), [=](float e) { return std::round(scale * e); });
-
-  std::transform((float*)matAf.data(), (float*)matAf.data() + M * N * 2, (double*)matA.data(), [](float e) { return double(e); });
-
-  double epi = 1.e-6;
-  Eigen::MatrixXcd ldl = matA.adjoint() * matA;
-  std::vector<int32_t> piv(N);
-
-  zpotrfp(N, ldl.data(), N, piv.data());
-  ldl = ldl.triangularView<Eigen::Upper>();
-
-  Eigen::MatrixXcf R(N, N);
-  std::transform((double*)ldl.data(), (double*)ldl.data() + N * N * 2, (float*)R.data(), [](double e) { return float(std::round(e)); });
-
-  Eigen::ColPivHouseholderQR<Eigen::MatrixXcd> cpqr(matA);
-  Eigen::MatrixXcd qr = cpqr.matrixQR().topRows(N).triangularView<Eigen::Upper>();
-  auto cp = cpqr.colsPermutation().indices();
-  cpqr.setThreshold(epi);
-
-  for (int32_t i = 0; i < N; ++i)
-    if (qr(i, i).real() < 0)
-      qr.row(i) = -qr.row(i);
-
-  Eigen::MatrixXcf qr_f(N, N);
-  std::transform((double*)qr.data(), (double*)qr.data() + N * N * 2, (float*)qr_f.data(), [](double e) { return float(std::round(e)); });
-
-  std::cout << (qr_f - R).norm() / qr_f.norm() << std::endl;
-  std::cout <<"rank cpqr: " << cpqr.rank() << std::endl;*/
 
   return 0;
 }
