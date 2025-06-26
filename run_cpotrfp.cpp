@@ -8,7 +8,7 @@ void zpotrfp(int32_t N, std::complex<double>* A, int32_t lda, int32_t* ipiv) {
   for (int32_t i = 0; i < N; ++i)
     diag[i] = A[i * (lda + 1)].real();
 
-  for (int32_t i = 0; i < 2; ++i) {
+  for (int32_t i = 0; i < N; ++i) {
     int32_t id = i; // izmax, assumes diagonal are always positive, skip LAPACK pos-def checks
     for (int32_t j = i + 1; j < N; ++j)
       if (diag[id] < diag[j])
@@ -47,7 +47,7 @@ void zpotrfp(int32_t N, std::complex<double>* A, int32_t lda, int32_t* ipiv) {
 }
 
 int32_t main() {
-  int32_t N = 10;
+  int32_t N = 128;
   Eigen::MatrixXcd matA(N, N);
   random_vector(N * N * 2, (double*)matA.data());
   for (int32_t i = 0; i < N; ++i) {
@@ -74,10 +74,10 @@ int32_t main() {
 
   cudaMemcpy(matA.data(), d_A, N * N * sizeof(std::complex<double>), cudaMemcpyDefault);
 
-  std::cout << matA << std::endl << std::endl;
+  /*std::cout << matA << std::endl << std::endl;
 
   Eigen::MatrixXcd matLB = matB.triangularView<Eigen::Upper>();
-  std::cout << matB << std::endl << std::endl;
+  std::cout << matB << std::endl << std::endl;*/
 
   std::cout << (matA - matB).norm() / matB.norm() << std::endl;
 

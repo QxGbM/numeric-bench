@@ -20,10 +20,12 @@ int32_t main() {
   const int32_t m = 8192, n = m;
 
   cuDoubleComplex* d_A, * d_B, * d_C, * d_D;
+  double* s;
   cudaMallocManaged(reinterpret_cast<void**>(&d_A), m * n * sizeof(cuDoubleComplex), cudaMemAttachGlobal);
   cudaMallocManaged(reinterpret_cast<void**>(&d_B), n * sizeof(cuDoubleComplex), cudaMemAttachGlobal);
   cudaMallocManaged(reinterpret_cast<void**>(&d_C), m * sizeof(cuDoubleComplex), cudaMemAttachGlobal);
   cudaMallocManaged(reinterpret_cast<void**>(&d_D), m * sizeof(cuDoubleComplex), cudaMemAttachGlobal);
+  cudaMallocManaged(reinterpret_cast<void**>(&s), sizeof(double), cudaMemAttachGlobal);
 
   for (int32_t i = 0; i < m; ++i)
     for (int32_t j = 0; j < n; ++j)
@@ -34,6 +36,8 @@ int32_t main() {
 
   for (int32_t i = 0; i < m; ++i)
     d_C[i] = make_cuDoubleComplex(0., 0.);
+
+  *s = 1.;
 
   int64_t flops = m * n * 4;
   int32_t loops = 10;
@@ -55,7 +59,7 @@ int32_t main() {
   start = omp_get_wtime();
   for (int32_t i = 0; i < loops; ++i)
     //minus_adjAx_plusB_scale_double_complex(stream, 1., m, n, (const std::complex<double>*)d_A, n, (const std::complex<double>*)d_B, (std::complex<double>*)d_C, (std::complex<double>*)d_D);
-    minus_transAx_plusB_scale_double(stream, scale, m, n, (const double*)d_A, n, (const double*)d_B, (double*)d_C, (double*)d_D);
+    minus_transAx_plusB_scale_double(stream, s, m, n, (const double*)d_A, n, (const double*)d_B, (double*)d_C, (double*)d_D);
   cudaDeviceSynchronize();
   lapse = omp_get_wtime() - start;
 
@@ -71,6 +75,7 @@ int32_t main() {
   cudaFree(d_B);
   cudaFree(d_C);
   cudaFree(d_D);
+  cudaFree(s);
 
   cudaStreamDestroy(stream);
   cublasDestroy(handle);
