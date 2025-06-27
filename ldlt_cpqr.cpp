@@ -18,13 +18,14 @@ void zpotrfp(int32_t N, std::complex<double>* A, int32_t lda, int32_t* ipiv) {
 
     if (i != id) {
       std::iter_swap(&diag[i], &diag[id]);
-      std::iter_swap(&A[i + i * lda], &A[id + i * lda]);
-      std::iter_swap(&A[i + id * lda], &A[id + id * lda]); // for diagonal and both columns, exchange only the row element
       for (int32_t j = 0; j < N; ++j) // exchange column i with column id
         std::iter_swap(&A[j + i * lda], &A[j + id * lda]);
-      for (int32_t j = 0; j < N; ++j) // write row id with entries inside column id
+      for (int32_t j = i + 1; j < N; ++j) // write row id with entries inside column id
         A[id + j * lda] = std::conj(A[j + id * lda]);
       // delay write to row i as column i will be updated immediately after
+
+      std::iter_swap(&A[i + i * lda], &A[id + i * lda]);
+      std::iter_swap(&A[i + id * lda], &A[id + id * lda]); // for diagonal and both columns, exchange only the row element
     }
 
     for (int32_t j = i; j < N; ++j) // left-looking Cholesky factorization, delay update to column i (exchanged) till current iteration
@@ -34,7 +35,7 @@ void zpotrfp(int32_t N, std::complex<double>* A, int32_t lda, int32_t* ipiv) {
     for (int32_t j = i; j < N; ++j) // divide by diagonal element
       A[j + i * lda] *= s;
 
-    for (int32_t j = 0; j < N; ++j) // now write row i with updated column i
+    for (int32_t j = i; j < N; ++j) // now write row i with updated column i
       A[i + j * lda] = std::conj(A[j + i * lda]);
 
     for (int32_t j = i; j < N; ++j) { // update the diagonal entries (only real part), skip [0, i] as they will not be in the next pivoting selections

@@ -25,7 +25,7 @@ int32_t main() {
   cusolverDnCreate(&cusolverH);
   cusolverDnSetStream(cusolverH, stream);
 
-  int32_t N = 800;
+  int32_t N = 2048;
   int64_t flops = (int64_t)N * (int64_t)N * (int64_t)N / 3;
 
   std::cout << flops << std::endl;
@@ -62,16 +62,6 @@ int32_t main() {
   start = omp_get_wtime();
 
   for (int32_t i = 0; i < loops; ++i) {
-    cusolverDnZsytrf(cusolverH, CUBLAS_FILL_MODE_UPPER, N, (cuDoubleComplex*)dmat_dev, N, ipiv, (cuDoubleComplex*)dwork_dev, dwork_dev_size, info);
-  }
-
-  cudaDeviceSynchronize();
-  lapse = omp_get_wtime() - start;
-  printf("<zsytrf> time: %f ms. Gflops: %f\n", lapse * 1000 / loops, gf / lapse);
-
-  start = omp_get_wtime();
-
-  for (int32_t i = 0; i < loops; ++i) {
     cusolverDnCsytrf(cusolverH, CUBLAS_FILL_MODE_UPPER, N, (cuComplex*)fmat_dev, N, ipiv, (cuComplex*)fwork_dev, fwork_dev_size, info);
   }
 
@@ -79,18 +69,18 @@ int32_t main() {
   lapse = omp_get_wtime() - start;
 
   printf("<csytrf> time: %f ms. Gflops: %f\n", lapse * 1000 / loops, gf / lapse);
-  std::generate((float*)fmat_dev, (float*)&fmat_dev[N * N], [&]() { return dist(gen); });
-  std::generate((double*)dmat_dev, (double*)&dmat_dev[N * N], [&]() { return dist(gen); });
-
   start = omp_get_wtime();
 
   for (int32_t i = 0; i < loops; ++i) {
-    cusolverDnZpotrf(cusolverH, CUBLAS_FILL_MODE_UPPER, N, (cuDoubleComplex*)dmat_dev, N, (cuDoubleComplex*)dwork_dev, dwork_dev_size, info);
+    cusolverDnZsytrf(cusolverH, CUBLAS_FILL_MODE_UPPER, N, (cuDoubleComplex*)dmat_dev, N, ipiv, (cuDoubleComplex*)dwork_dev, dwork_dev_size, info);
   }
 
   cudaDeviceSynchronize();
   lapse = omp_get_wtime() - start;
-  printf("<zpotrf> time: %f ms. Gflops: %f\n", lapse * 1000 / loops, gf / lapse);
+  printf("<zsytrf> time: %f ms. Gflops: %f\n", lapse * 1000 / loops, gf / lapse);
+
+  std::generate((float*)fmat_dev, (float*)&fmat_dev[N * N], [&]() { return dist(gen); });
+  std::generate((double*)dmat_dev, (double*)&dmat_dev[N * N], [&]() { return dist(gen); });
 
   start = omp_get_wtime();
 
@@ -102,6 +92,16 @@ int32_t main() {
   lapse = omp_get_wtime() - start;
 
   printf("<cpotrf> time: %f ms. Gflops: %f\n", lapse * 1000 / loops, gf / lapse);
+
+  start = omp_get_wtime();
+
+  for (int32_t i = 0; i < loops; ++i) {
+    cusolverDnZpotrf(cusolverH, CUBLAS_FILL_MODE_UPPER, N, (cuDoubleComplex*)dmat_dev, N, (cuDoubleComplex*)dwork_dev, dwork_dev_size, info);
+  }
+
+  cudaDeviceSynchronize();
+  lapse = omp_get_wtime() - start;
+  printf("<zpotrf> time: %f ms. Gflops: %f\n", lapse * 1000 / loops, gf / lapse);
 
   cudaFree(fmat_dev);
   cudaFree(dmat_dev);
