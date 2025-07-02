@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <omp.h>
 #include <hyacinth.hpp>
+#include <internal.hpp>
 
 int32_t main() {
   auto err = cudaSetDevice(0);
@@ -19,58 +20,33 @@ int32_t main() {
 
   const int32_t m = 8192, n = m;
 
-  cuDoubleComplex* d_A, * d_C, * d_D;
-  double* s;
-  cudaMallocManaged(reinterpret_cast<void**>(&d_A), m * n * sizeof(cuDoubleComplex), cudaMemAttachGlobal);
-  cudaMallocManaged(reinterpret_cast<void**>(&d_C), m * sizeof(cuDoubleComplex), cudaMemAttachGlobal);
-  cudaMallocManaged(reinterpret_cast<void**>(&d_D), m * sizeof(cuDoubleComplex), cudaMemAttachGlobal);
-  cudaMallocManaged(reinterpret_cast<void**>(&s), sizeof(double), cudaMemAttachGlobal);
-
-  for (int32_t i = 0; i < m; ++i)
-    for (int32_t j = 0; j < n; ++j)
-      d_A[j + i * m] = make_cuDoubleComplex(i, j);
-
-  for (int32_t i = 0; i < m; ++i)
-    d_C[i] = make_cuDoubleComplex(0., 0.);
-
-  *s = -1.;
+  complex_double2* d_A, * d_C, *s;
+  cudaMallocManaged(reinterpret_cast<void**>(&d_A), m * n * sizeof(complex_double2), cudaMemAttachGlobal);
+  cudaMallocManaged(reinterpret_cast<void**>(&d_C), m * m * sizeof(complex_double2), cudaMemAttachGlobal);
+  cudaMallocManaged(reinterpret_cast<void**>(&s), sizeof(complex_double2), cudaMemAttachGlobal);
 
   int64_t flops = m * n * 4;
   int32_t loops = 10;
   double gflops = flops * 1.e-9 * loops;
-  std::complex<double> alpha = 1., beta = 1.;
-  double scale = -1.;
 
   double start = omp_get_wtime();
-  for (int32_t i = 0; i < loops; ++i) {
-    //cublasZgemv(handle, CUBLAS_OP_C, m, n, (cuDoubleComplex*)&alpha, d_A, n, d_B, 1, (cuDoubleComplex*)&beta, d_C, 1);
-    cublasDgemv(handle, CUBLAS_OP_T, m, n, (double*)&alpha, (const double*)d_A, n, (const double*)d_A, 1, (double*)&beta, (double*)d_C, 1);
-    cublasDscal(handle, m, &scale, (double*)d_C, 1);
-  }
+  for (int32_t i = 0; i < loops; ++i)
+    minus_adjAx_plusB_scale_double2_complex(stream, (const double2*)s, m, n, d_A, n, d_C);
   cudaDeviceSynchronize();
   double lapse = omp_get_wtime() - start;
 
-  printf("<zgemv> time: %f ms. GFLOPS: %f\n", lapse * 1000 / loops, gflops / lapse);
+  printf("<dd_gemv> time: %f ms. GFLOPS: %f\n", lapse * 1000 / loops, gflops / lapse);
 
   start = omp_get_wtime();
   for (int32_t i = 0; i < loops; ++i)
-    //minus_adjAx_plusB_scale_double_complex(stream, 1., m, n, (const std::complex<double>*)d_A, n, (const std::complex<double>*)d_B, (std::complex<double>*)d_C, (std::complex<double>*)d_D);
-    minus_transAx_plusB_scale_double(stream, s, m, n, (const double*)d_A, n, (double*)d_C, (double*)d_D);
+    minus_adjAx_plusB_scale_float4_complex(stream, (const float4*)s, m, n, (const complex_float4*)d_A, n, (complex_float4*)d_C);
   cudaDeviceSynchronize();
   lapse = omp_get_wtime() - start;
 
-  printf("<zgemv custom> time: %f ms. GFLOPS: %f\n", lapse * 1000 / loops, gflops / lapse);
-
-  double nrm = 0.;
-  cublasDznrm2(handle, m, d_C, 1, &nrm);
-  cudaDeviceSynchronize();
-
-  printf("err: %e\n", nrm / n);
+  printf("<f4_gemv> time: %f ms. GFLOPS: %f\n", lapse * 1000 / loops, gflops / lapse);
 
   cudaFree(d_A);
   cudaFree(d_C);
-  cudaFree(d_D);
-  cudaFree(s);
 
   cudaStreamDestroy(stream);
   cublasDestroy(handle);
