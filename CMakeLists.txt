@@ -31,6 +31,6 @@ foreach (test ${sources})
 
   add_executable(${src}.app ${test})
   add_test(NAME ${src}.app COMMAND ${src}.app)
-  set_target_properties(${src}.app PROPERTIES CUDA_ARCHITECTURES native)
+  set_target_properties(${src}.app PROPERTIES CUDA_ARCHITECTURES all-major)
 endforeach ()
 

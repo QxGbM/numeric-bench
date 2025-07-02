@@ -31,9 +31,25 @@ int32_t main() {
 
   double start = omp_get_wtime();
   for (int32_t i = 0; i < loops; ++i)
-    minus_adjAx_plusB_scale_double2_complex(stream, (const double2*)s, m, n, d_A, n, d_C);
+    minus_adjAx_plusB_scale_double_complex(stream, (const double*)s, m, n, (const std::complex<double>*)d_A, n, (std::complex<double>*)d_C);
   cudaDeviceSynchronize();
   double lapse = omp_get_wtime() - start;
+
+  printf("<zgemv> time: %f ms. GFLOPS: %f\n", lapse * 1000 / loops, gflops / lapse);
+
+  start = omp_get_wtime();
+  for (int32_t i = 0; i < loops; ++i)
+    minus_adjAx_plusB_scale_float_complex(stream, (const float*)s, m, n, (const std::complex<float>*)d_A, n, (std::complex<float>*)d_C);
+  cudaDeviceSynchronize();
+  lapse = omp_get_wtime() - start;
+
+  printf("<cgemv> time: %f ms. GFLOPS: %f\n", lapse * 1000 / loops, gflops / lapse);
+
+  start = omp_get_wtime();
+  for (int32_t i = 0; i < loops; ++i)
+    minus_adjAx_plusB_scale_double2_complex(stream, (const double2*)s, m, n, d_A, n, d_C);
+  cudaDeviceSynchronize();
+  lapse = omp_get_wtime() - start;
 
   printf("<dd_gemv> time: %f ms. GFLOPS: %f\n", lapse * 1000 / loops, gflops / lapse);
 
