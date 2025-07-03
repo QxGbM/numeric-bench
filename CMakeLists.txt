@@ -15,12 +15,14 @@ find_package(Eigen3 REQUIRED)
 find_package(MKL REQUIRED)
 find_package(OpenMP REQUIRED)
 find_package(CUDAToolkit REQUIRED)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(MAGMA REQUIRED magma)
+
+set(MAGMA_INCLUDE_DIRS "/home/ma/magma-2.9.0/include")
+set(MAGMA_LIB_PATHS "/home/ma/magma-2.9.0/lib")
+set(MAGMA_LINK_LIBRARIES "-lmagma -lmagma_sparse")
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR} "~/hyacinth/" ${MAGMA_INCLUDE_DIRS})
 add_compile_options("-fexceptions" "-Wall" "-Wextra" "$<$<CONFIG:DEBUG>:-O0;-g3;-ggdb>" "$<$<CONFIG:RELEASE>:-O3>")
-link_directories("~/hyacinth/build")
+link_directories("~/hyacinth/build" ${MAGMA_LIB_PATHS})
 link_libraries(OpenMP::OpenMP_CXX MKL::MKL Eigen3::Eigen CUDA::cudart CUDA::cublas CUDA::cusolver libhyacinth.so ${MAGMA_LINK_LIBRARIES})
 #link_libraries(OpenMP::OpenMP_CXX BLAS::BLAS LAPACK::LAPACK Eigen3::Eigen CUDA::cudart CUDA::cublas CUDA::cusolver libhyacinth.so lapacke ${MAGMA_LINK_LIBRARIES})
 
