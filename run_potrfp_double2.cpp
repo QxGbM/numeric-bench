@@ -2,24 +2,20 @@
 #include <commons.hpp>
 #include <hyacinth.hpp>
 
-float4 double_float4(double a) {
-  float x = float(a);
-  a -= double(x);
-  float y = float(a);
-  a -= double(y);
-  float z = float(a);
-  return float4 { x, y, z, 0.f };
+complex_double2 double_double2(std::complex<double> a) {
+  return host::dd::make_complex_double2(make_double2(a.real(), 0.), make_double2(a.imag(), 0.));
 }
 
-double float4_double(float4 a) {
-  return double(a.x) + double(a.y) + double(a.z) + double(a.w);
+std::complex<double> double2_double(complex_double2 a) {
+  return std::complex<double>(double(a.real.x) + double(a.real.y), double(a.imag.x) + double(a.imag.y));
 }
 
 int32_t main() {
   int32_t N = 2048;
   Eigen::MatrixXcd matA(N, N), matB(N, N);
   std::vector<int32_t> ipiv(N);
-  std::vector<complex_float4> matA_f4(N * N);
+  typedef complex_double2 complex_t;
+  std::vector<complex_t> matA_f4(N * N);
 
   random_vector(N * N * 2, (double*)matA.data());
   for (int32_t i = 0; i < N; ++i) {
@@ -30,22 +26,22 @@ int32_t main() {
 
   for (int32_t i = 0; i < N * N; ++i) {
     std::complex<double> e = matA.reshaped()[i];
-    matA_f4[i] = host::qf::make_complex_float4(double_float4(e.real()), double_float4(e.imag()));
+    matA_f4[i] = double_double2(e);
   }
 
   //std::cout << matA << std::endl;
   cudaStream_t stream;
   cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
 
-  complex_float4* d_A;
-  cudaMallocManaged(reinterpret_cast<void**>(&d_A), (N + 1) * N * sizeof(complex_float4), cudaMemAttachGlobal);
-  cudaMemcpy(d_A, matA_f4.data(), N * N * sizeof(complex_float4), cudaMemcpyDefault);
+  complex_t* d_A;
+  cudaMallocManaged(reinterpret_cast<void**>(&d_A), (N + 1) * N * sizeof(complex_t), cudaMemAttachGlobal);
+  cudaMemcpy(d_A, matA_f4.data(), N * N * sizeof(complex_t), cudaMemcpyDefault);
 
-  int32_t ret = complex_quad_float_potrfp_gpu(stream, N, d_A, N, ipiv.data());
+  int32_t ret = complex_double_double_potrfp_gpu(stream, N, d_A, N, ipiv.data());
   cudaDeviceSynchronize();
   std::cout << ret << std::endl;
 
-  cudaMemcpy(matA_f4.data(), d_A, N * N * sizeof(complex_float4), cudaMemcpyDefault);
+  cudaMemcpy(matA_f4.data(), d_A, N * N * sizeof(complex_t), cudaMemcpyDefault);
   //for (int32_t i = 0; i < N; ++i)
     //std::cout << ipiv[i] << ", ";
 
@@ -55,8 +51,8 @@ int32_t main() {
   //std::cout << matB.diagonal() << std::endl;
 
   for (int32_t i = 0; i < N * N; ++i) {
-    complex_float4 e = matA_f4[i];
-    matB.reshaped()[i] = std::complex<double>(float4_double(e.real), float4_double(e.imag));
+    complex_t e = matA_f4[i];
+    matB.reshaped()[i] = double2_double(e);
   }
 
   Eigen::MatrixXcd matUB = matB.triangularView<Eigen::Upper>();

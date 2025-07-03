@@ -31,7 +31,7 @@ int32_t main() {
 
   double start = omp_get_wtime();
   for (int32_t i = 0; i < loops; ++i)
-    minus_adjAx_plusB_scale_double_complex(stream, (const double*)s, m, n, (const std::complex<double>*)d_A, n, (std::complex<double>*)d_C);
+    internal::Cholesky::minus_adjAx_plusB_scale_double_complex(stream, (const double*)s, m, n, (const std::complex<double>*)d_A, n, (std::complex<double>*)d_C);
   cudaDeviceSynchronize();
   double lapse = omp_get_wtime() - start;
 
@@ -39,7 +39,7 @@ int32_t main() {
 
   start = omp_get_wtime();
   for (int32_t i = 0; i < loops; ++i)
-    minus_adjAx_plusB_scale_float_complex(stream, (const float*)s, m, n, (const std::complex<float>*)d_A, n, (std::complex<float>*)d_C);
+    internal::Cholesky::minus_adjAx_plusB_scale_float_complex(stream, (const float*)s, m, n, (const std::complex<float>*)d_A, n, (std::complex<float>*)d_C);
   cudaDeviceSynchronize();
   lapse = omp_get_wtime() - start;
 
@@ -47,7 +47,7 @@ int32_t main() {
 
   start = omp_get_wtime();
   for (int32_t i = 0; i < loops; ++i)
-    minus_adjAx_plusB_scale_double2_complex(stream, (const double2*)s, m, n, d_A, n, d_C);
+    internal::Cholesky::minus_adjAx_plusB_scale_double2_complex(stream, (const double2*)s, m, n, d_A, n, d_C);
   cudaDeviceSynchronize();
   lapse = omp_get_wtime() - start;
 
@@ -55,7 +55,7 @@ int32_t main() {
 
   start = omp_get_wtime();
   for (int32_t i = 0; i < loops; ++i)
-    minus_adjAx_plusB_scale_float4_complex(stream, (const float4*)s, m, n, (const complex_float4*)d_A, n, (complex_float4*)d_C);
+    internal::Cholesky::minus_adjAx_plusB_scale_float4_complex(stream, (const float4*)s, m, n, (const complex_float4*)d_A, n, (complex_float4*)d_C);
   cudaDeviceSynchronize();
   lapse = omp_get_wtime() - start;
 
