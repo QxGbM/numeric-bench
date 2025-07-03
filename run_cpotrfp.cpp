@@ -16,13 +16,18 @@ int32_t main() {
 
   //std::cout << matA << std::endl;
   cudaStream_t stream;
+  cudaEvent_t start, stop;
   cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
 
   std::complex<double>* d_A;
   cudaMallocManaged(reinterpret_cast<void**>(&d_A), (N + 1) * N * sizeof(std::complex<double>), cudaMemAttachGlobal);
   cudaMemcpy(d_A, matA.data(), N * N * sizeof(std::complex<double>), cudaMemcpyDefault);
 
+  cudaEventRecord(start, stream);
   int32_t ret = zpotrfp_gpu(stream, N, d_A, N, ipiv.data());
+  cudaEventRecord(stop, stream);
   cudaDeviceSynchronize();
   std::cout << ret << std::endl;
 
@@ -45,7 +50,13 @@ int32_t main() {
   std::cout << (matA - res).norm() / matA.norm() << std::endl;
   //std::cout << res << std::endl;
 
+  float milliseconds = 0.0f;
+  cudaEventElapsedTime(&milliseconds, start, stop);
+  std::cout << "Time: " << milliseconds << " ms\n";
+
   cudaFree(d_A);
+  cudaEventDestroy(start);
+  cudaEventDestroy(stop);
   cudaStreamDestroy(stream);
   return 0;
 }

@@ -35,13 +35,18 @@ int32_t main() {
 
   //std::cout << matA << std::endl;
   cudaStream_t stream;
+  cudaEvent_t start, stop;
   cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
 
   complex_float4* d_A;
   cudaMallocManaged(reinterpret_cast<void**>(&d_A), (N + 1) * N * sizeof(complex_float4), cudaMemAttachGlobal);
   cudaMemcpy(d_A, matA_f4.data(), N * N * sizeof(complex_float4), cudaMemcpyDefault);
 
+  cudaEventRecord(start, stream);
   int32_t ret = complex_quad_float_potrfp_gpu(stream, N, d_A, N, ipiv.data());
+  cudaEventRecord(stop, stream);
   cudaDeviceSynchronize();
   std::cout << ret << std::endl;
 
@@ -69,7 +74,13 @@ int32_t main() {
   std::cout << (matA - res).norm() / matA.norm() << std::endl;
   //std::cout << res << std::endl;
 
+  float milliseconds = 0.0f;
+  cudaEventElapsedTime(&milliseconds, start, stop);
+  std::cout << "Time: " << milliseconds << " ms\n";
+
   cudaFree(d_A);
+  cudaEventDestroy(start);
+  cudaEventDestroy(stop);
   cudaStreamDestroy(stream);
   return 0;
 }
