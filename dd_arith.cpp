@@ -10,7 +10,7 @@ double2 double_double2(double a) {
 }
 
 int32_t main() {
-  double x0 = 2;
+  double x0 = 2000 / 21.0;
   double x1 = 1.0 / std::sqrt(x0);
   printf("a = %.40lf\n", x0);
   printf("b = 1./sqrt(a) = %.40lf\n", x1);
