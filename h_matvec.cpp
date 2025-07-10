@@ -63,6 +63,7 @@ int32_t main() {
 
   cudaFree(d_A);
   cudaFree(d_C);
+  cudaFree(s);
 
   cudaStreamDestroy(stream);
   cublasDestroy(handle);
