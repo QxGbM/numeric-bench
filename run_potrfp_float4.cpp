@@ -30,7 +30,7 @@ int32_t main() {
 
   for (int32_t i = 0; i < N * N; ++i) {
     std::complex<double> e = matA.reshaped()[i];
-    matA_f4[i] = host::qf::make_complex_float4(double_float4(e.real()), double_float4(e.imag()));
+    matA_f4[i] = device::qf::make_complex_float4(double_float4(e.real()), double_float4(e.imag()));
   }
 
   //std::cout << matA << std::endl;

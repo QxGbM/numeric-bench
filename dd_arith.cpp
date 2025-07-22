@@ -19,15 +19,15 @@ int32_t main() {
 
   double2 y, z, w, e;
   y = double_double2(x0);
-  z = host::dd::frsqrt(y);
+  z = device::dd::frsqrt(y);
   w = double_double2(0.);
   e = double_double2(0.);
 
   printf("<double2> a = %.40le %.40le\n", y.x, y.y);
   printf("<double2> b = %.40le %.40le\n", z.x, z.y);
 
-  w = host::dd::fma(y, z, e);
-  w = host::dd::fma(w, z, e);
+  w = device::dd::fma(y, z, e);
+  w = device::dd::fma(w, z, e);
   printf("<float> a*b*b = %.40le %.40le\n", w.x, w.y);
 
   double d2 = double(w.x) + double(w.y);

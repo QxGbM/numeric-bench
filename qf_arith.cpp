@@ -23,15 +23,15 @@ int32_t main() {
 
   float4 y, z, w, e;
   y = double_float4(x0);
-  z = host::qf::frsqrt(y);
+  z = device::qf::frsqrt(y);
   w = double_float4(0.);
   e = double_float4(0.);
 
   printf("<float4> a = %.20le %.20le %.20le %.20le\n", y.x, y.y, y.z, y.w);
   printf("<float4> b = %.20le %.20le %.20le %.20le\n", z.x, z.y, z.z, z.w);
 
-  w = host::qf::fma(y, z, e);
-  w = host::qf::fma(w, z, e);
+  w = device::qf::fma(y, z, e);
+  w = device::qf::fma(w, z, e);
   printf("<float> a*b*b = %.20le %.20le %.20le %.20le\n", w.x, w.y, w.z, w.w);
 
   double d2 = double(w.x) + double(w.y) + double(w.z) + double(w.w);

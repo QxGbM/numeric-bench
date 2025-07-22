@@ -3,7 +3,7 @@
 #include <hyacinth.hpp>
 
 complex_double2 double_double2(std::complex<double> a) {
-  return host::dd::make_complex_double2(make_double2(a.real(), 0.), make_double2(a.imag(), 0.));
+  return device::dd::make_complex_double2(make_double2(a.real(), 0.), make_double2(a.imag(), 0.));
 }
 
 std::complex<double> double2_double(complex_double2 a) {
