@@ -14,21 +14,26 @@
 
 template<int order> double decode_int8(int8_t (&code)[order], int32_t expon) {
   double res = 0;
-  int32_t carry = 0;
-  int32_t m4 = order & 3, o4 = order - m4;
+  /*int32_t carry = 0;
+  int32_t m7 = order % 7, o7 = order - m7;
 
-  for (int32_t i = 0; i < o4; i += 4) {
-    int32_t c[4] = { int32_t(code[i]), int32_t(code[i+1]), int32_t(code[i+2]), int32_t(code[i+3]) };
-    int32_t val = device::int8::decode_scaled_4xi32(c, carry);
+  for (int32_t i = 0; i < o7; i += 7) {
+    int32_t c[7]{};
+    for (int32_t j = 0; j < 7; ++j)
+      c[j] = int32_t(code[i+j]);
+    int64_t val = device::int8::decode_scaled_7xi32(c, carry);
     res += std::scalbn(double(val), 7*(i+expon));
   }
 
-  int32_t c[4]{};
-  for (int32_t i = 0; i < m4; ++i)
-    c[i] = code[i+o4];
-  int32_t val = device::int8::decode_scaled_4xi32(c, carry);
-  res += std::scalbn(double(val), 7*(o4+expon));
-  res += std::scalbn(double(carry), 7*(o4+expon+1));
+  int32_t c[7]{};
+  for (int32_t i = 0; i < m7; ++i)
+    c[i] = code[i+o7];
+  int64_t val = device::int8::decode_scaled_7xi32(c, carry);
+  res += std::scalbn(double(val), 7*(o7+expon));
+  res += std::scalbn(double(carry), 7*(o7+expon+7));*/
+
+  for (int32_t i = 0; i < order; ++i)
+    res += std::scalbn(double(code[i]), 7*(i+expon));
   return res;
 }
 
@@ -57,9 +62,11 @@ int32_t main() {
   double* d_A = nullptr;
   int8_t* d_iA = nullptr;
   int32_t* d_exp = nullptr;
+  int32_t* d_AHA = nullptr;
   cudaMallocManaged(reinterpret_cast<void**>(&d_A), M * N * sizeof(double), cudaMemAttachGlobal);
   cudaMallocManaged(reinterpret_cast<void**>(&d_iA), LD * N * order * sizeof(int8_t), cudaMemAttachGlobal);
   cudaMallocManaged(reinterpret_cast<void**>(&d_exp), N * sizeof(int32_t), cudaMemAttachGlobal);
+  cudaMallocManaged(reinterpret_cast<void**>(&d_AHA), N * N * (2 * order - 1) * sizeof(int32_t), cudaMemAttachGlobal);
   cudaMemset(d_iA, 0, LD * N * order * sizeof(int8_t));
 
   cudaMemcpy(d_A, X.data(), M * N * sizeof(double), cudaMemcpyDefault);
@@ -97,9 +104,12 @@ int32_t main() {
   }
   printf("%.20le\n", std::sqrt(err / nrm));
 
+  internal::int8::strided_r8i_ATA_gemm(handle, order, LD, N, d_iA, d_AHA);
+
   cudaFree(d_A);
   cudaFree(d_iA);
   cudaFree(d_exp);
+  cudaFree(d_AHA);
 
   cudaStreamDestroy(stream);
   cublasDestroy(handle);

@@ -5,20 +5,22 @@
 template<int order> double decode_int8(int8_t (&code)[order], int32_t expon) {
   double res = 0;
   int32_t carry = 0;
-  int32_t m4 = order & 3, o4 = order - m4;
+  int32_t m7 = order % 7, o7 = order - m7;
 
-  for (int32_t i = 0; i < o4; i += 4) {
-    int32_t c[4] = { int32_t(code[i]), int32_t(code[i+1]), int32_t(code[i+2]), int32_t(code[i+3]) };
-    int32_t val = device::int8::decode_scaled_4xi32(c, carry);
+  for (int32_t i = 0; i < o7; i += 7) {
+    int32_t c[7]{};
+    for (int32_t j = 0; j < 7; ++j)
+      c[j] = int32_t(code[i+j]);
+    int64_t val = device::int8::decode_scaled_7xi32(c, carry);
     res += std::scalbn(double(val), 7*(i+expon));
   }
 
-  int32_t c[4]{};
-  for (int32_t i = 0; i < m4; ++i)
-    c[i] = code[i+o4];
-  int32_t val = device::int8::decode_scaled_4xi32(c, carry);
-  res += std::scalbn(double(val), 7*(o4+expon));
-  res += std::scalbn(double(carry), 7*(o4+expon+1));
+  int32_t c[7]{};
+  for (int32_t i = 0; i < m7; ++i)
+    c[i] = code[i+o7];
+  int64_t val = device::int8::decode_scaled_7xi32(c, carry);
+  res += std::scalbn(double(val), 7*(o7+expon));
+  res += std::scalbn(double(carry), 7*(o7+expon+7));
   return res;
 }
 
@@ -27,12 +29,13 @@ int32_t main() {
   Eigen::MatrixXcd matA(M, N);
   random_vector(M * N * 2, (double*)matA.data());
 
-  int32_t test_i4[4]{ -13515313, 1515618, -4199848, 1561648 };
-  int32_t carry = -156156916, carry_old = carry;
-  int32_t i4 = device::int8::decode_scaled_4xi32(test_i4, carry);
-  int64_t test_decode_i = int64_t(i4) + (int64_t(carry) << 28);
-  int64_t ref_decode_i = int64_t(carry_old) + int64_t(test_i4[0]) + (int64_t(test_i4[1]) << 7) + (int64_t(test_i4[2]) << 14) + (int64_t(test_i4[3]) << 21);
-  printf("%d %d\n", i4, carry);
+  int32_t test_i7[7]{ -1298998, 1165168, -156128, 115628, -165128, -798128, -128 };
+  int32_t carry = 8591, carry_old = carry;
+  int64_t i7 = device::int8::decode_scaled_7xi32(test_i7, carry);
+  int64_t test_decode_i = int64_t(i7) + (int64_t(carry) << 49);
+  int64_t ref_decode_i = int64_t(carry_old) + int64_t(test_i7[0]) + (int64_t(test_i7[1]) << 7) + (int64_t(test_i7[2]) << 14) + (int64_t(test_i7[3]) << 21)
+    + (int64_t(test_i7[4]) << 28) + (int64_t(test_i7[5]) << 35) + (int64_t(test_i7[6]) << 42);
+  printf("%lld %d\n", i7, carry);
   printf("%lld %lld %lld\n", test_decode_i, ref_decode_i, test_decode_i-ref_decode_i);
 
   double ref_f = -2.81569195111111418919199e-2;

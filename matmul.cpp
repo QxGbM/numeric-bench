@@ -62,12 +62,22 @@ int32_t main() {
   printf("<gemmEx with s> time: %f ms. GFLOPS: %f\n", lapse * 1000 / loops, gflops / lapse);
 
   start = omp_get_wtime();
+  int32_t i_alpha = 1, i_beta = 1;
   for (int32_t i = 0; i < loops; ++i)
-    cublasGemmEx(handle, CUBLAS_OP_T, CUBLAS_OP_N, m, n, k, &alpha, d_A, CUDA_R_8I, k, d_B, CUDA_R_8I, k, &beta, d_C, CUDA_R_32I, m, CUBLAS_COMPUTE_32I, CUBLAS_GEMM_DEFAULT);
+    cublasGemmEx(handle, CUBLAS_OP_T, CUBLAS_OP_N, m, n, k, &i_alpha, d_A, CUDA_R_8I, k, d_B, CUDA_R_8I, k, &i_beta, d_C, CUDA_R_32I, m, CUBLAS_COMPUTE_32I, CUBLAS_GEMM_DEFAULT);
   cudaDeviceSynchronize();
   lapse = omp_get_wtime() - start;
 
-  printf("<gemmEx with i> time: %f ms. GFLOPS: %f\n", lapse * 1000 / loops, gflops / lapse);
+  printf("<gemmEx with i unit> time: %f ms. GFLOPS: %f\n", lapse * 1000 / loops, gflops / lapse);
+
+  start = omp_get_wtime();
+  i_alpha = -1, i_beta = 1;
+  for (int32_t i = 0; i < loops; ++i)
+    cublasGemmStridedBatchedEx(handle, CUBLAS_OP_T, CUBLAS_OP_N, m, n, k, &i_alpha, d_A, CUDA_R_8I, k, 0, d_B, CUDA_R_8I, k, 0, &i_beta, d_C, CUDA_R_32I, m, 0, 1, CUBLAS_COMPUTE_32I, CUBLAS_GEMM_DEFAULT);
+  cudaDeviceSynchronize();
+  lapse = omp_get_wtime() - start;
+
+  printf("<gemmEx with i non-unit> time: %f ms. GFLOPS: %f\n", lapse * 1000 / loops, gflops / lapse);
 
   cudaFree(d_A);
   cudaFree(d_B);

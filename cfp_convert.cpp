@@ -15,20 +15,22 @@
 template<int order> double decode_int8(int8_t (&code)[order], int32_t expon) {
   double res = 0;
   int32_t carry = 0;
-  int32_t m4 = order & 3, o4 = order - m4;
+  int32_t m7 = order % 7, o7 = order - m7;
 
-  for (int32_t i = 0; i < o4; i += 4) {
-    int32_t c[4] = { int32_t(code[i]), int32_t(code[i+1]), int32_t(code[i+2]), int32_t(code[i+3]) };
-    int32_t val = device::int8::decode_scaled_4xi32(c, carry);
+  for (int32_t i = 0; i < o7; i += 7) {
+    int32_t c[7]{};
+    for (int32_t j = 0; j < 7; ++j)
+      c[j] = int32_t(code[i+j]);
+    int64_t val = device::int8::decode_scaled_7xi32(c, carry);
     res += std::scalbn(double(val), 7*(i+expon));
   }
 
-  int32_t c[4]{};
-  for (int32_t i = 0; i < m4; ++i)
-    c[i] = code[i+o4];
-  int32_t val = device::int8::decode_scaled_4xi32(c, carry);
-  res += std::scalbn(double(val), 7*(o4+expon));
-  res += std::scalbn(double(carry), 7*(o4+expon+1));
+  int32_t c[7]{};
+  for (int32_t i = 0; i < m7; ++i)
+    c[i] = code[i+o7];
+  int64_t val = device::int8::decode_scaled_7xi32(c, carry);
+  res += std::scalbn(double(val), 7*(o7+expon));
+  res += std::scalbn(double(carry), 7*(o7+expon+7));
   return res;
 }
 
