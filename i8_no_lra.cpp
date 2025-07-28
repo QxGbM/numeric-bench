@@ -53,5 +53,7 @@ int32_t main() {
   double test_f = decode_int8(c.byte, vec_e);
   printf("%le %le %le\n", test_f, ref_f, std::abs((test_f-ref_f)/ref_f));
 
+  printf("%d %d\n", device::int8::get_double_top_exp(1), device::int8::get_double_top_exp(1.000000001));
+
   return 0;
 }
