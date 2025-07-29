@@ -16,7 +16,7 @@ int32_t main() {
   cublasCreate(&handle);
   cublasSetStream(handle, stream);
 
-  const int64_t m = 4096, n = m, k = m;
+  const int64_t m = 4096, n = m, k = 1024;
 
   int8_t* d_A, * d_B;
   cuComplex* d_C;
