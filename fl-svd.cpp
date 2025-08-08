@@ -8,6 +8,14 @@ int32_t trunc_i (int32_t i) {
   return (~s128 & ~s127 & i) | (s128 & -128) | (s127 & 127);
 }
 
+double round_double(double f, double epi) {
+  union { double fp; uint64_t u; } v {f};
+  int32_t digits = -std::floor(std::log2(epi));
+  int32_t exp = (int32_t(v.u >> 52) & 2047) - 1023;
+  int64_t frac = int64_t(std::scalbn(f, digits - exp));
+  return std::scalbn(double(frac), exp - digits);
+}
+
 int32_t main() {
   int64_t M = 100, N = 800;
   Eigen::MatrixXcd matA(M, N), matU(M, M);
@@ -27,6 +35,22 @@ int32_t main() {
   int64_t rank_svd = svd.rank();
   Eigen::MatrixXcd reA = svd.matrixU().leftCols(rank_svd) * svd.singularValues().topRows(rank_svd).asDiagonal() * svd.matrixV().leftCols(rank_svd).adjoint();
   std::cout << rank_svd << ", " << (reA - ref).norm() / ref.norm() << std::endl;
+  std::cout << svd.singularValues() << std::endl;
+
+  Eigen::MatrixXcd matD(M, N);
+  std::transform(&(matA.data())[0], &(matA.data())[M * N], &(matD.data())[0], 
+    [](std::complex<double> e) { return std::complex<double>(round_double(e.real(), 1.e-9), round_double(e.imag(), 1.e-9)); });
+
+  svd = Eigen::JacobiSVD<Eigen::MatrixXcd>(matD, Eigen::ComputeThinU | Eigen::ComputeThinV);
+  svd.setThreshold(1.e-8);
+  rank_svd = svd.rank();
+  Eigen::MatrixXcd reD = svd.matrixU().leftCols(rank_svd) * svd.singularValues().topRows(rank_svd).asDiagonal() * svd.matrixV().leftCols(rank_svd).adjoint();
+  std::cout << rank_svd << ", " << (reD - ref).norm() / ref.norm() << std::endl;
+  std::cout << svd.singularValues() << std::endl;
+
+  double aa = -1.2345678923456789;
+  double bb = round_double(aa, 1.e-9);
+  printf("%.20le %.20le %.20le\n", aa, bb, std::abs(aa - bb));
 
   double A_nrm = 32. / matA.lpNorm<Eigen::Infinity>();
 

@@ -16,9 +16,9 @@ double float4_double(float4 a) {
 }
 
 int32_t main() {
-  int32_t N = 2048;
+  int32_t N = 4096;
   Eigen::MatrixXcd matA(N, N), matB(N, N);
-  std::vector<int32_t> ipiv(N);
+  int32_t* ipiv;
   std::vector<complex_float4> matA_f4(N * N);
 
   random_vector(N * N * 2, (double*)matA.data());
@@ -42,10 +42,11 @@ int32_t main() {
 
   complex_float4* d_A;
   cudaMallocManaged(reinterpret_cast<void**>(&d_A), (N + 1) * N * sizeof(complex_float4), cudaMemAttachGlobal);
+  cudaMallocHost(reinterpret_cast<void**>(&ipiv), (N + 8) * sizeof(int32_t));
   cudaMemcpy(d_A, matA_f4.data(), N * N * sizeof(complex_float4), cudaMemcpyDefault);
 
   cudaEventRecord(start, stream);
-  int32_t ret = complex_quad_float_potrfp_gpu(stream, N, d_A, N, ipiv.data());
+  int32_t ret = device::Cholesky::complex_quad_float_potrfp(stream, N, d_A, N, ipiv);
   cudaEventRecord(stop, stream);
   cudaDeviceSynchronize();
   std::cout << ret << std::endl;
@@ -76,9 +77,12 @@ int32_t main() {
 
   float milliseconds = 0.0f;
   cudaEventElapsedTime(&milliseconds, start, stop);
+  int64_t flops = int64_t(N) * int64_t(N) * int64_t(N) / 3;
   std::cout << "Time: " << milliseconds << " ms\n";
+  std::cout << "GFLOPs: " << double(flops) * 1.e-6 / milliseconds << "\n";
 
   cudaFree(d_A);
+  cudaFreeHost(ipiv);
   cudaEventDestroy(start);
   cudaEventDestroy(stop);
   cudaStreamDestroy(stream);

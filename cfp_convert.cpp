@@ -14,25 +14,10 @@
 #include <double_double.hpp>
 #include <mkl.h>
 
-template<int order> double decode_int8(int8_t (&code)[order], int32_t expon) {
+template<int32_t base, int32_t order> double decode_int(int8_t (&code)[order], int32_t expon) {
   double res = 0;
-  int32_t carry = 0;
-  int32_t m7 = order % 7, o7 = order - m7;
-
-  for (int32_t i = 0; i < o7; i += 7) {
-    int32_t c[7]{};
-    for (int32_t j = 0; j < 7; ++j)
-      c[j] = int32_t(code[i+j]);
-    int64_t val = device::int8::decode_scaled_7xi32(c, carry);
-    res += std::scalbn(double(val), 7*(i+expon));
-  }
-
-  int32_t c[7]{};
-  for (int32_t i = 0; i < m7; ++i)
-    c[i] = code[i+o7];
-  int64_t val = device::int8::decode_scaled_7xi32(c, carry);
-  res += std::scalbn(double(val), 7*(o7+expon));
-  res += std::scalbn(double(carry), 7*(o7+expon+7));
+  for (int32_t i = 0; i < order; ++i)
+    res += std::scalbn(double(code[i]), base*(i+expon));
   return res;
 }
 
@@ -47,12 +32,11 @@ int32_t main() {
   cublasCreate(&handle);
   cublasSetStream(handle, stream);
 
-  const int32_t M = 4096, N = 1024;
+  const int32_t M = 16, N = 16;
   const int32_t ldm = ((M + 15) / 16 * 16), ldn = ((N + 15) / 16 * 16);
-  constexpr int32_t order = 7;
+  constexpr int32_t order = 9;
 
-  std::vector<std::complex<double>> X(M * N), B(ldm * N), C(ldn * N);
-  std::vector<complex_double2> D(ldn * N);
+  std::vector<std::complex<double>> X(M * N), B(ldm * N), C(ldn * N), D(ldn * N);
   std::vector<int8_t> iX(2 * ldm * ldn * order);
   std::vector<int32_t> expon(N), iAHA(2 * ldn * ldn * (2*order));
 
@@ -66,12 +50,12 @@ int32_t main() {
   int32_t* d_AHA = nullptr;
   std::complex<double>* d_C = nullptr;
   complex_double2* d_D = nullptr;
-  cudaMallocManaged(reinterpret_cast<void**>(&d_A), M * N * sizeof(std::complex<double>), cudaMemAttachGlobal);
-  cudaMallocManaged(reinterpret_cast<void**>(&d_iA), 2 * ldm * ldn * order * sizeof(int8_t), cudaMemAttachGlobal);
-  cudaMallocManaged(reinterpret_cast<void**>(&d_exp), N * sizeof(int32_t), cudaMemAttachGlobal);
-  cudaMallocManaged(reinterpret_cast<void**>(&d_AHA), 2 * ldn * ldn * (2*order) * sizeof(int32_t), cudaMemAttachGlobal);
-  cudaMallocManaged(reinterpret_cast<void**>(&d_C), ldn * N * sizeof(std::complex<double>), cudaMemAttachGlobal);
-  cudaMallocManaged(reinterpret_cast<void**>(&d_D), ldn * N * sizeof(complex_double2), cudaMemAttachGlobal);
+  cudaMalloc(reinterpret_cast<void**>(&d_A), M * N * sizeof(std::complex<double>));
+  cudaMalloc(reinterpret_cast<void**>(&d_iA), 2 * ldm * ldn * order * sizeof(int8_t));
+  cudaMalloc(reinterpret_cast<void**>(&d_exp), N * sizeof(int32_t));
+  cudaMalloc(reinterpret_cast<void**>(&d_AHA), 2 * ldn * ldn * (2*order) * sizeof(int32_t));
+  cudaMalloc(reinterpret_cast<void**>(&d_C), ldn * N * sizeof(std::complex<double>));
+  cudaMalloc(reinterpret_cast<void**>(&d_D), ldn * N * sizeof(complex_double2));
   cudaMemset(d_iA, 0, ldm * ldn * order * sizeof(int8_t));
 
   cudaMemcpy(d_A, X.data(), M * N * sizeof(std::complex<double>), cudaMemcpyDefault);
@@ -80,12 +64,9 @@ int32_t main() {
 
   cudaDeviceSynchronize();
   cudaMemcpy(expon.data(), d_exp, N * sizeof(int32_t), cudaMemcpyDefault);
-  for (int32_t i = 0; i < N; ++i)
-    printf("%d ", expon[i]);
-  printf("\n");
 
   for (int32_t i = 0; i < 20; ++i)
-    internal::int8::encode_cf64_order20(stream, order, M, N, d_A, M, d_exp, d_iA, ldm,ldm*ldn);
+    internal::int8::encode_cf64(stream, order, M, N, d_A, M, d_exp, d_iA, ldm);
   cudaDeviceSynchronize();
   cudaMemcpy(iX.data(), d_iA, 2 * ldm * ldn * order * sizeof(int8_t), cudaMemcpyDefault);
 
@@ -93,12 +74,12 @@ int32_t main() {
     for (int32_t i = 0; i < M; ++i) {
       int8_t code[order]{};
       for (int32_t k = 0; k < order; ++k)
-        code[k] = iX[i + j * ldm + (2 * k) * (ldm * ldn)];
-      double im = decode_int8(code, expon[j]);
+        code[k] = iX[i + j * ldm + (k + order) * (ldm * N)];
+      double im = decode_int<device::Config::exp_base>(code, expon[j]);
 
       for (int32_t k = 0; k < order; ++k)
-        code[k] = iX[i + j * ldm + (2 * k + 1) * (ldm * ldn)];
-      B[i + j * ldm] = std::complex<double>(decode_int8(code, expon[j]), im);
+        code[k] = iX[i + j * ldm + k * (ldm * N)];
+      B[i + j * ldm] = std::complex<double>(decode_int<device::Config::exp_base>(code, expon[j]), im);
     }
   }
 
@@ -107,6 +88,7 @@ int32_t main() {
     for (int32_t i = 0; i < M; ++i) {
       err += std::norm(B[i + j * ldm] - X[i + j * M]);
       nrm += std::norm(X[i + j * M]);
+      printf("%d %d %.20le %.20le\n", i, j, B[i + j * ldm].real(), X[i + j * M].real());
     }
     for (int32_t i = M; i < ldm; ++i)
       err += std::norm(B[i + j * ldm]);
@@ -118,27 +100,27 @@ int32_t main() {
   cudaDeviceSynchronize();
   cudaMemcpy(C.data(), d_C, ldn * N * sizeof(std::complex<double>), cudaMemcpyDefault);
 
-  internal::int8::c8i_HN_gemm_strided_AC(stream, handle, order, ldn, ldn, ldm, d_iA, ldm*ldn, d_iA, d_AHA, ldn*ldn);
-  internal::int8::decode_complex_dd_strided_i32(stream, 2*order, N, d_exp, d_AHA, ldn, d_D, ldn);
+  internal::int8::c8i_HN_gemm_stridedA(stream, handle, N, 1024, ldn, ldm, d_iA, order, d_AHA, 2*order);
+  internal::int8::decode_complex_dd_strided_i32(stream, 0, 2*order, N, d_exp, d_AHA, ldn, d_D, ldn);
+  internal::Cholesky::copy_convert_upper_dd_f64(stream, 2, N, (double2*)d_D, ldn * 2, (double*)d_C, ldn * 2);
   cudaDeviceSynchronize();
   cudaMemcpy(iAHA.data(), d_AHA, 2 * ldn * ldn * (2 * order) * sizeof(int32_t), cudaMemcpyDefault);
-  cudaMemcpy(D.data(), d_D, ldn * N * sizeof(complex_double2), cudaMemcpyDefault);
+  cudaMemcpy(D.data(), d_C, ldn * N * sizeof(std::complex<double>), cudaMemcpyDefault);
 
   double nrm_AHA = 0.;
   for (int32_t i = 0; i < (2 * ldn * ldn * (2*order)); ++i)
     nrm_AHA += std::norm((double)iAHA[i]);
   printf("%.40le\n", nrm_AHA);
 
-  err = 0.;
+  err = 0., nrm = 0.;
   for (int32_t j = 0; j < N; ++j) {
     for (int32_t i = 0; i < N; ++i) {
-      complex_double2 c = D[i + j * ldn];
-      double rl = c.real.x + c.real.y;
-      double im = c.imag.x + c.imag.y;
-      err += std::norm(C[i + j * ldn] - std::complex<double>(rl, im));
+      std::complex<double> c = D[i + j * ldn];
+      err += std::norm(C[i + j * ldn] - c);
+      nrm += std::norm(C[i + j * ldn]);
     }
   }
-  printf("%.20le\n", std::sqrt(err) / nrm);
+  printf("%.20le\n", std::sqrt(err / nrm));
 
   cudaFree(d_A);
   cudaFree(d_iA);

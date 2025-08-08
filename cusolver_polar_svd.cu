@@ -25,7 +25,7 @@ int32_t main() {
   cusolverDnCreate(&cusolverH);
   cusolverDnSetStream(cusolverH, stream);
 
-  int32_t M = 2048, N = std::min(M, 2048);
+  int32_t M = 65536, N = std::min(M, 4096);
   int64_t flops = (int64_t)N * (int64_t)N * (4 * (int64_t)M + 8 * (int64_t)N);
 
   std::cout << flops << std::endl;

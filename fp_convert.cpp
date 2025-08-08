@@ -13,10 +13,10 @@
 #include <double_double.hpp>
 #include <int_fp_encode.hpp>
 
-template<int order> double decode_int(int8_t (&code)[order], int32_t expon) {
+template<int32_t base, int32_t order> double decode_int(int8_t (&code)[order], int32_t expon) {
   double res = 0;
   for (int32_t i = 0; i < order; ++i)
-    res += std::scalbn(double(code[i]), 7*(i+expon));
+    res += std::scalbn(double(code[i]), base*(i+expon));
   return res;
 }
 
@@ -33,14 +33,14 @@ int32_t main() {
 
   const int32_t M = 4096, N = 1024;
   const int32_t ldm = ((M + 15) / 16 * 16), ldn = ((N + 15) / 16 * 16);
-  constexpr int32_t order = 7;
+  constexpr int32_t order = 9;
 
   std::vector<double> X(M * N), B(ldm * N), C(ldn * N), D(ldn * N);
   std::vector<int8_t> iX(ldm * ldn * order);
   std::vector<int32_t> expon(N), iAHA(ldn * ldn * (2*order));
 
   std::mt19937_64 gen;
-  std::normal_distribution<double> dist(-32, 32);
+  std::normal_distribution<double> dist(0, 32);
   std::generate(X.begin(), X.end(), [&]() { return dist(gen); });
 
   double* d_A = nullptr;
@@ -61,12 +61,12 @@ int32_t main() {
 
   cudaDeviceSynchronize();
   cudaMemcpy(expon.data(), d_exp, N * sizeof(int32_t), cudaMemcpyDefault);
-  for (int32_t i = 0; i < N; ++i)
-    printf("%d ", expon[i]);
-  printf("\n");
+  //for (int32_t i = 0; i < N; ++i)
+    //printf("%d ", expon[i]);
+  //printf("\n");
 
   for (int32_t i = 0; i < 20; ++i)
-    internal::int8::encode_f64_order20(stream, order, M, N, d_A, M, d_exp, d_iA, ldm, ldm*ldn);
+    internal::int8::encode_f64(stream, order, M, N, d_A, M, d_exp, d_iA, ldm);
   cudaDeviceSynchronize();
   cudaMemcpy(iX.data(), d_iA, ldm * ldn * order * sizeof(int8_t), cudaMemcpyDefault);
 
@@ -75,7 +75,7 @@ int32_t main() {
       int8_t code[order]{};
       for (int32_t k = 0; k < order; ++k)
         code[k] = iX[i + j * ldm + k * (ldm * ldn)];
-      B[i + j * ldm] = decode_int(code, expon[j]);
+      B[i + j * ldm] = decode_int<device::Config::exp_base>(code, expon[j]);
     }
   }
 
@@ -100,8 +100,12 @@ int32_t main() {
   cudaDeviceSynchronize();
   cudaMemcpy(C.data(), d_C, ldn * N * sizeof(double), cudaMemcpyDefault);
 
-  internal::int8::r8i_TN_gemm_strided_AC(stream, handle, order, ldn, ldn, ldm, d_iA, ldm*ldn, d_iA, d_AHA, ldn*ldn);
-  internal::int8::decode_f64_strided_i32(stream, 2*order, N, d_exp, d_AHA, ldn, d_C, ldn);
+  int32_t orderC = 14;
+  internal::int8::r8i_TN_gemm_stridedA(stream, handle, N, 1024, ldn, ldm, d_iA, d_iA, order, d_AHA, orderC);
+  for (int32_t i = 0; i < 20; ++i) {
+    cudaMemsetAsync(d_C, 0, ldn * N * sizeof(double), stream);
+    internal::int8::decode_f64_strided_i32(stream, 2*order-orderC, 2*order, N, d_exp, d_AHA, ldn, d_C, ldn);
+  }
   cudaDeviceSynchronize();
   cudaMemcpy(iAHA.data(), d_AHA, ldn * ldn * (2*order) * sizeof(int32_t), cudaMemcpyDefault);
   cudaMemcpy(D.data(), d_C, ldn * N * sizeof(double), cudaMemcpyDefault);

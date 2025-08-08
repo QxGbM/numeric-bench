@@ -11,9 +11,9 @@ std::complex<double> double2_double(complex_double2 a) {
 }
 
 int32_t main() {
-  int32_t N = 2048;
+  int32_t N = 4096;
   Eigen::MatrixXcd matA(N, N), matB(N, N);
-  std::vector<int32_t> ipiv(N);
+  int32_t* ipiv;
   typedef complex_double2 complex_t;
   std::vector<complex_t> matA_f4(N * N);
 
@@ -38,10 +38,11 @@ int32_t main() {
 
   complex_t* d_A;
   cudaMallocManaged(reinterpret_cast<void**>(&d_A), (N + 1) * N * sizeof(complex_t), cudaMemAttachGlobal);
+  cudaMallocHost(reinterpret_cast<void**>(&ipiv), (N + 8) * sizeof(int32_t));
   cudaMemcpy(d_A, matA_f4.data(), N * N * sizeof(complex_t), cudaMemcpyDefault);
 
   cudaEventRecord(start, stream);
-  int32_t ret = complex_double_double_potrfp_gpu(stream, N, d_A, N, ipiv.data());
+  int32_t ret = device::Cholesky::complex_double_double_potrfp(stream, N, d_A, N, ipiv);
   cudaEventRecord(stop, stream);
   cudaDeviceSynchronize();
   std::cout << ret << std::endl;
@@ -72,9 +73,12 @@ int32_t main() {
 
   float milliseconds = 0.0f;
   cudaEventElapsedTime(&milliseconds, start, stop);
+  int64_t flops = int64_t(N) * int64_t(N) * int64_t(N) / 3;
   std::cout << "Time: " << milliseconds << " ms\n";
+  std::cout << "GFLOPs: " << double(flops) * 1.e-6 / milliseconds << "\n";
 
   cudaFree(d_A);
+  cudaFreeHost(ipiv);
   cudaEventDestroy(start);
   cudaEventDestroy(stop);
   cudaStreamDestroy(stream);
