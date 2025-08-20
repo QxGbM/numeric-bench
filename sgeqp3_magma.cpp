@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <random>
 #include <magma_v2.h>
+#include <cublas_v2.h>
 
 int32_t main(int32_t argc, char* argv[]) {
   magma_init();
@@ -14,6 +15,7 @@ int32_t main(int32_t argc, char* argv[]) {
 
   magma_queue_t queue = nullptr;
   magma_queue_create(0, &queue);
+  cublasHandle_t cublasH = magma_queue_get_cublas_handle(queue);
   cudaStream_t stream = magma_queue_get_cuda_stream(queue);
 
   float* dA, *dC;
@@ -47,7 +49,11 @@ int32_t main(int32_t argc, char* argv[]) {
   int64_t qr_flops = (M * N * N * 2) - (N * N * N * 2 / 3);
   cudaEventElapsedTime(&milliseconds, start, stop);
   std::cout << "Time: " << milliseconds << " ms\n";
-  std::cout << "Total GFLOPs: " << double(qr_flops) * 1.e-6 / milliseconds << "\n" << std::endl;
+  std::cout << "Total GFLOPs: " << double(qr_flops) * 1.e-6 / milliseconds << "\n";
+
+  float nrm = 0.;
+  cublasSnrm2_64(cublasH, M * N, dA, int64_t(1), &nrm);
+  std::cout << "L2 Nrm: " << nrm << "\n" << std::endl;
 
   magma_free(dA);
   magma_free(dC);

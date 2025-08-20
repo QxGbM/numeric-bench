@@ -28,7 +28,7 @@ int32_t main(int32_t argc, char* argv[]) {
   int64_t M = 1 < argc ? std::atoi(argv[1]) : 1024;
   int64_t N = 2 < argc ? std::atoi(argv[2]) : 128;
   N = std::min(M, N);
-  std::cout << "cusolver ZGESVD <" << M << ", " << N << ">\n";
+  std::cout << "cusolver CGESVD <" << M << ", " << N << ">\n";
  
   std::mt19937_64 gen(42);
   std::normal_distribution<float> dist(0., 32.);
