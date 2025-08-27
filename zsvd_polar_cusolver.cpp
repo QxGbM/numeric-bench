@@ -4,12 +4,25 @@
 #include <complex>
 #include <iostream>
 #include <algorithm>
-#include <random>
+
+void make_2D_oscillatory(double w, int32_t sep, int32_t M, int32_t N, std::complex<double>* A, int32_t lda) {
+  auto translate_2d = [](int64_t i) { int64_t x = i / 128, y = i - 128 * x; return std::complex<double>(x, y); };
+  sep = 128 * sep + ((M + 127) & (~127));
+
+  for (int32_t j = 0; j < N; ++j) {
+    auto vj = translate_2d(j + sep);
+    for (int32_t i = 0; i < M; ++i) {
+      auto vi = translate_2d(i);
+      double d = std::abs(vi - vj);
+      A[uint64_t(i) + uint64_t(j) * uint64_t(lda)] = std::complex<double>(std::cos(w * d) / d, std::sin(w * d) / d);
+    }
+  }
+}
 
 int32_t main(int32_t argc, char* argv[]) {
-  auto err = cudaSetDevice(0);
-  if (err != cudaSuccess)
-  { fprintf(stderr, "%s\n", cudaGetErrorString(err)); return -1; }
+  auto cu_err = cudaSetDevice(0);
+  if (cu_err != cudaSuccess)
+  { fprintf(stderr, "%s\n", cudaGetErrorString(cu_err)); return -1; }
   
   cudaStream_t stream;
   cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
@@ -28,12 +41,12 @@ int32_t main(int32_t argc, char* argv[]) {
   int64_t M = 1 < argc ? std::atoi(argv[1]) : 1024;
   int64_t N = 2 < argc ? std::atoi(argv[2]) : 128;
   N = std::min(M, N);
-  std::cout << "cusolver ZGESVD <" << M << ", " << N << ">\n";
+
+  double omega = 3 < argc ? std::atof(argv[3]) : 0.01;
+  int32_t sep = 4 < argc ? std::atoi(argv[4]) : 16;
  
-  std::mt19937_64 gen(42);
-  std::normal_distribution<double> dist(0., 32.);
-  std::vector<double> matA(2 * M * N);
-  std::generate(matA.begin(), matA.end(), [&]() { return dist(gen); });
+  std::vector<std::complex<double>> matA(M * N);
+  make_2D_oscillatory(omega, sep, M, N, matA.data(), M);
 
   std::complex<double>* dA = nullptr, *dU = nullptr, *dV = nullptr;
   double* dS = nullptr;
@@ -53,6 +66,11 @@ int32_t main(int32_t argc, char* argv[]) {
   void* hWork = std::malloc(workspaceInBytesOnHost), *dWork;
   cudaMalloc(&dWork, workspaceInBytesOnDevice);
 
+  cusolverDnXgesvdp(cusolverH, params, CUSOLVER_EIG_MODE_VECTOR, 1, M, N, 
+    CUDA_C_64F, dA, M, CUDA_R_64F, dS, CUDA_C_64F, dU, M, CUDA_C_64F, dV, N, CUDA_C_64F, dWork, workspaceInBytesOnDevice, hWork, workspaceInBytesOnHost, info, &h_err);
+  cudaDeviceSynchronize();
+  cudaMemcpy(dA, matA.data(), M * N * sizeof(std::complex<double>), cudaMemcpyHostToDevice);
+
   cudaEventRecord(start, stream);
   cusolverDnXgesvdp(cusolverH, params, CUSOLVER_EIG_MODE_VECTOR, 1, M, N, 
     CUDA_C_64F, dA, M, CUDA_R_64F, dS, CUDA_C_64F, dU, M, CUDA_C_64F, dV, N, CUDA_C_64F, dWork, workspaceInBytesOnDevice, hWork, workspaceInBytesOnHost, info, &h_err);
@@ -62,9 +80,8 @@ int32_t main(int32_t argc, char* argv[]) {
   float milliseconds = 0.0f;
   cudaEventElapsedTime(&milliseconds, start, stop);
   int64_t svd_flops = N * N * (4 * M + 8 * N);
-  std::cout << "Time: " << milliseconds << " ms\n";
-  std::cout << "Polar Peturbation: " << h_err << "\n";
-  std::cout << "Total GFLOPs: " << double(svd_flops) * 1.e-6 / milliseconds << "\n" << std::endl;
+  double gflops = double(svd_flops) * 1.e-6 / milliseconds;
+  std::cout << "cusolver-ZGESVD," << M << "," << N << "," << omega << "," << sep << "," << milliseconds << "," << h_err << "," << gflops << std::endl;
 
   cudaFree(dA);
   cudaFree(dU);
@@ -76,6 +93,9 @@ int32_t main(int32_t argc, char* argv[]) {
   cudaStreamDestroy(stream);
   cusolverDnDestroyParams(params);
   cusolverDnDestroy(cusolverH);
-  std::cerr << cudaGetErrorString(cudaGetLastError()) << std::endl;
+
+  cu_err = cudaGetLastError();
+  if (cu_err != cudaSuccess)
+    std::cerr << cudaGetErrorString(cu_err) << std::endl;
   return 0;
 }

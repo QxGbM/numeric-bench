@@ -8,10 +8,13 @@
 #include <cublas_v2.h>
 
 int32_t main(int32_t argc, char* argv[]) {
+  auto cu_err = cudaSetDevice(0);
+  if (cu_err != cudaSuccess)
+  { fprintf(stderr, "%s\n", cudaGetErrorString(cu_err)); return -1; }
+
   magma_init();
   int64_t M = 1 < argc ? std::atoi(argv[1]) : 1024;
   int64_t N = 2 < argc ? std::atoi(argv[2]) : 128;
-  std::cout << "magma SGEQP3 <" << M << ", " << N << ">\n";
 
   magma_queue_t queue = nullptr;
   magma_queue_create(0, &queue);
@@ -36,6 +39,11 @@ int32_t main(int32_t argc, char* argv[]) {
   Lwork = 16 * (magma_int_t)(work);
   magma_smalloc(&dC, Lwork);
 
+  magma_sgeqp3_gpu(M, N, dA, M, jpvt.data(), tau.data(), dC, Lwork, &info);
+  magma_queue_sync(queue);
+  magma_ssetvector(M * N, (float*)matA.data(), 1, (float*)dA, 1, queue);
+  std::fill(jpvt.begin(), jpvt.end(), 0);
+
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
   cudaEventCreate(&stop);
@@ -45,15 +53,15 @@ int32_t main(int32_t argc, char* argv[]) {
   cudaEventRecord(stop, stream);
   magma_queue_sync(queue);
 
-  float milliseconds = 0.0f;
-  int64_t qr_flops = (M * N * N * 2) - (N * N * N * 2 / 3);
-  cudaEventElapsedTime(&milliseconds, start, stop);
-  std::cout << "Time: " << milliseconds << " ms\n";
-  std::cout << "Total GFLOPs: " << double(qr_flops) * 1.e-6 / milliseconds << "\n";
-
   float nrm = 0.;
   cublasSnrm2_64(cublasH, M * N, dA, int64_t(1), &nrm);
-  std::cout << "L2 Nrm: " << nrm << "\n" << std::endl;
+  magma_queue_sync(queue);
+
+  float milliseconds = 0.0f;
+  cudaEventElapsedTime(&milliseconds, start, stop);
+  int64_t qr_flops = (M * N * N * 2) - (N * N * N * 2 / 3);
+  double gflops = double(qr_flops) * 1.e-6 / milliseconds;
+  std::cout << "magma-SGEQP3," << M << "," << N << "," << nrm << "," << milliseconds << "," << gflops << std::endl;
 
   magma_free(dA);
   magma_free(dC);
@@ -62,6 +70,10 @@ int32_t main(int32_t argc, char* argv[]) {
   cudaEventDestroy(start);
   cudaEventDestroy(stop);
   magma_finalize();
+
+  cu_err = cudaGetLastError();
+  if (cu_err != cudaSuccess)
+    std::cerr << cudaGetErrorString(cu_err) << std::endl;
   return 0;
 }
 
