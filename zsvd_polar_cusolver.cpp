@@ -69,7 +69,7 @@ int32_t main(int32_t argc, char* argv[]) {
   cudaEventElapsedTime(&milliseconds, start, stop);
   int64_t svd_flops = N * N * (4 * M + 8 * N);
   double gflops = double(svd_flops) * 1.e-6 / milliseconds;
-  std::cout << "cusolver-ZGESVD," << M << "," << N << "," << milliseconds << "," << gflops << "," << ((hinfo == 0 && status == CUSOLVER_STATUS_SUCCESS) ? "OK" : "ERR") << "," << h_err << std::endl;
+  std::cout << "cusolver-ZGESVDP," << M << "," << N << "," << milliseconds << "," << gflops << "," << ((hinfo == 0 && status == CUSOLVER_STATUS_SUCCESS) ? "OK" : "ERR") << "," << h_err << std::endl;
 
   cudaFree(dA);
   cudaFree(dU);

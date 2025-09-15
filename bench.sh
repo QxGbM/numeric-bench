@@ -1,9 +1,9 @@
 #!/bin/bash
-#YBATCH -r h100_1
+#YBATCH -r dgx-b200_1
 #SBATCH -N 1
 #SBATCH -J bench
 #SBATCH --time=04:00:00
-#SBATCH --output hyac_results/h100_64000x4000_benches.out
+#SBATCH --output hyac_results/b200_64000x4000_benches.out
 
 . /etc/profile.d/modules.sh
 module load cmake/4.1.0 cuda/12.8 intel/2022/mkl
@@ -31,5 +31,26 @@ echo ----------------------------------------------------------------
 ~/numeric-bench/build/sgeqp3_magma.app $M $N
 ~/numeric-bench/build/zgeqp3_magma.app $M $N
 ~/numeric-bench/build/cgeqp3_magma.app $M $N
+
+echo ----------------------------------------------------------------
+
+~/numeric-bench/build/dlra_magma.app $M $N
+~/numeric-bench/build/slra_magma.app $M $N
+~/numeric-bench/build/zlra_magma.app $M $N
+~/numeric-bench/build/clra_magma.app $M $N
+
+echo ----------------------------------------------------------------
+
+~/numeric-bench/build/dsvd_cusolver.app $M $N
+~/numeric-bench/build/ssvd_cusolver.app $M $N
+~/numeric-bench/build/zsvd_cusolver.app $M $N
+~/numeric-bench/build/csvd_cusolver.app $M $N
+
+echo ----------------------------------------------------------------
+
+~/numeric-bench/build/dsvd_rankr_cusolver.app $M $N
+~/numeric-bench/build/ssvd_rankr_cusolver.app $M $N
+~/numeric-bench/build/zsvd_rankr_cusolver.app $M $N
+~/numeric-bench/build/csvd_rankr_cusolver.app $M $N
 
 echo ----------------------------------------------------------------

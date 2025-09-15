@@ -1,14 +1,15 @@
 
+#include <cublas_v2.h>
 #include <cusolverDn.h>
 #include <vector>
 #include <complex>
 #include <iostream>
 #include <algorithm>
-#include <random>
 
 void make_2D_oscillatory(double w, int32_t sep, int32_t M, int32_t N, std::complex<float>* A, int32_t lda) {
-  auto translate_2d = [](int64_t i) { int64_t x = i / 128, y = i - 128 * x; return std::complex<double>(x, y); };
-  sep = 128 * sep + ((M + 127) & (~127));
+  constexpr int32_t height = 128;
+  auto translate_2d = [](int64_t i) { int64_t x = i / height, y = i - height * x; return std::complex<double>(x, y); };
+  sep = height * sep + ((M + height - 1) & (~(height - 1)));
 
   for (int32_t j = 0; j < N; ++j) {
     auto vj = translate_2d(j + sep);
@@ -28,6 +29,10 @@ int32_t main(int32_t argc, char* argv[]) {
   cudaStream_t stream;
   cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
 
+  cublasHandle_t cublasH;
+  cublasCreate(&cublasH);
+  cublasSetStream(cublasH, stream);
+
   cusolverDnHandle_t cusolverH;
   cusolverDnCreate(&cusolverH);
   cusolverDnSetStream(cusolverH, stream);
@@ -43,10 +48,14 @@ int32_t main(int32_t argc, char* argv[]) {
   int64_t N = 2 < argc ? std::atoi(argv[2]) : 128;
   N = std::min(M, N);
 
-  std::vector<std::complex<float>> matA(M * N);
-  std::mt19937_64 gen(42);
-  std::normal_distribution<double> dist(0, 32);
-  std::generate(matA.begin(), matA.end(), [&](){ return std::complex<float>(dist(gen), dist(gen)); });
+  int64_t k = 3 < argc ? std::atoi(argv[3]) : 128;
+  int64_t oversampling = 4 < argc ? std::atoi(argv[4]) : 0;
+  int32_t power_iter  = 5 < argc ? std::atoi(argv[5]) : 0;
+  k = std::min(k, N);
+ 
+  std::vector<std::complex<float>> matA(M * N, 0.);
+  std::vector<float> S(N);
+  make_2D_oscillatory(1., 0, M, N, matA.data(), M);
 
   std::complex<float>* dA = nullptr, *dU = nullptr, *dV = nullptr;
   float* dS = nullptr;
@@ -59,23 +68,34 @@ int32_t main(int32_t argc, char* argv[]) {
   cudaMemcpy(dA, matA.data(), M * N * sizeof(std::complex<float>), cudaMemcpyHostToDevice);
 
   size_t workspaceInBytesOnDevice, workspaceInBytesOnHost;
-  cusolverDnXgesvdp_bufferSize(cusolverH, params, CUSOLVER_EIG_MODE_VECTOR, 1, M, N, 
+  cusolverDnXgesvdr_bufferSize(cusolverH, params, 'S', 'S', M, N, k, oversampling, power_iter,
     CUDA_C_32F, dA, M, CUDA_R_32F, dS, CUDA_C_32F, dU, M, CUDA_C_32F, dV, N, CUDA_C_32F, &workspaceInBytesOnDevice, &workspaceInBytesOnHost);
 
-  double h_err = 0.;
   void* hWork = std::malloc(workspaceInBytesOnHost), *dWork;
   cudaMalloc(&dWork, workspaceInBytesOnDevice);
 
-  auto status = cusolverDnXgesvdp(cusolverH, params, CUSOLVER_EIG_MODE_VECTOR, 1, M, N, 
-    CUDA_C_32F, dA, M, CUDA_R_32F, dS, CUDA_C_32F, dU, M, CUDA_C_32F, dV, N, CUDA_C_32F, dWork, workspaceInBytesOnDevice, hWork, workspaceInBytesOnHost, info, &h_err);
+  auto status = cusolverDnXgesvdr(cusolverH, params, 'S', 'S', M, N, k, oversampling, power_iter,
+    CUDA_C_32F, dA, M, CUDA_R_32F, dS, CUDA_C_32F, dU, M, CUDA_C_32F, dV, N, CUDA_C_32F, dWork, workspaceInBytesOnDevice, hWork, workspaceInBytesOnHost, info);
   cudaDeviceSynchronize();
   int32_t hinfo;
   cudaMemcpy(&hinfo, info, sizeof(int32_t), cudaMemcpyDeviceToHost);
+  cudaMemcpy(S.data(), dS, N * sizeof(float), cudaMemcpyDeviceToHost);
   cudaMemcpy(dA, matA.data(), M * N * sizeof(std::complex<float>), cudaMemcpyHostToDevice);
 
+  float nrm = 0., err = 0.; std::complex<float> minus_one(-1.f, 0.f), one(1.f, 0.f);
+  cublasScnrm2_64(cublasH, M * N, (cuComplex*)dA, int64_t(1), &nrm);
+  for (int32_t i = 0; i < k; ++i)
+    cublasCsscal(cublasH, M, &S[i], (cuComplex*)&dU[i * M], 1);
+  cublasCgemm(cublasH, CUBLAS_OP_N, CUBLAS_OP_C, M, N, k, (cuComplex*)&minus_one, (const cuComplex*)dU, M, (const cuComplex*)dV, N, (cuComplex*)&one, (cuComplex*)dA, M);
+  cublasScnrm2_64(cublasH, M * N, (cuComplex*)dA, int64_t(1), &err);
+
+  cudaDeviceSynchronize();
+  cudaMemcpy(dA, matA.data(), M * N * sizeof(std::complex<float>), cudaMemcpyHostToDevice);
+  err = err / nrm;
+
   cudaEventRecord(start, stream);
-  cusolverDnXgesvdp(cusolverH, params, CUSOLVER_EIG_MODE_VECTOR, 1, M, N, 
-    CUDA_C_32F, dA, M, CUDA_R_32F, dS, CUDA_C_32F, dU, M, CUDA_C_32F, dV, N, CUDA_C_32F, dWork, workspaceInBytesOnDevice, hWork, workspaceInBytesOnHost, info, &h_err);
+  cusolverDnXgesvdr(cusolverH, params, 'S', 'S', M, N, k, oversampling, power_iter,
+    CUDA_C_32F, dA, M, CUDA_R_32F, dS, CUDA_C_32F, dU, M, CUDA_C_32F, dV, N, CUDA_C_32F, dWork, workspaceInBytesOnDevice, hWork, workspaceInBytesOnHost, info);
   cudaEventRecord(stop, stream);
 
   cudaDeviceSynchronize();
@@ -83,7 +103,7 @@ int32_t main(int32_t argc, char* argv[]) {
   cudaEventElapsedTime(&milliseconds, start, stop);
   int64_t svd_flops = N * N * (4 * M + 8 * N);
   double gflops = double(svd_flops) * 1.e-6 / milliseconds;
-  std::cout << "cusolver-CGESVDP," << M << "," << N << "," << milliseconds << "," << gflops << "," << ((hinfo == 0 && status == CUSOLVER_STATUS_SUCCESS) ? "OK" : "ERR") << "," << h_err << std::endl;
+  std::cout << "cusolver-CGESVDR," << M << "," << N << "," << err << "," << k << "," << milliseconds << "," << gflops << "," << ((hinfo == 0 && status == CUSOLVER_STATUS_SUCCESS) ? "OK" : "ERR") << std::endl;
 
   cudaFree(dA);
   cudaFree(dU);
@@ -93,6 +113,7 @@ int32_t main(int32_t argc, char* argv[]) {
   cudaFree(dWork);
   std::free(hWork);
   cudaStreamDestroy(stream);
+  cublasDestroy(cublasH);
   cusolverDnDestroyParams(params);
   cusolverDnDestroy(cusolverH);
 
