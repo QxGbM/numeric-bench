@@ -10,8 +10,11 @@ module load cmake/4.1.0 cuda/12.8 intel/2022/mkl
 
 M=64000
 N=4000
-omega=0.01
-sep=16
+omega=1
+sep=0
+
+nvidia-smi
+
 #for M in {16000,32000,64000,128000,256000,512000}
 #for N in {1000,2000,4000,8000,16000,32000}
 #do
