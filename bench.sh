@@ -17,40 +17,82 @@ nvidia-smi
 ~/numeric-bench/build/sgeqrf_cusolver.app $M $N
 ~/numeric-bench/build/zgeqrf_cusolver.app $M $N
 ~/numeric-bench/build/cgeqrf_cusolver.app $M $N
-
 echo ----------------------------------------------------------------
 
 ~/numeric-bench/build/dsvd_polar_cusolver.app $M $N
 ~/numeric-bench/build/ssvd_polar_cusolver.app $M $N
 ~/numeric-bench/build/zsvd_polar_cusolver.app $M $N
 ~/numeric-bench/build/csvd_polar_cusolver.app $M $N
-
 echo ----------------------------------------------------------------
 
 ~/numeric-bench/build/dgeqp3_magma.app $M $N
 ~/numeric-bench/build/sgeqp3_magma.app $M $N
 ~/numeric-bench/build/zgeqp3_magma.app $M $N
 ~/numeric-bench/build/cgeqp3_magma.app $M $N
-
 echo ----------------------------------------------------------------
 
-~/numeric-bench/build/dlra_magma.app $M $N
-~/numeric-bench/build/slra_magma.app $M $N
-~/numeric-bench/build/zlra_magma.app $M $N
-~/numeric-bench/build/clra_magma.app $M $N
-
+~/numeric-bench/build/dlra_magma.app $M $N 1.e-14
+~/numeric-bench/build/dlra_magma.app $M $N 1.e-12
+~/numeric-bench/build/dlra_magma.app $M $N 1.e-10
+~/numeric-bench/build/dlra_magma.app $M $N 1.e-8
+~/numeric-bench/build/dlra_magma.app $M $N 1.e-6
+~/numeric-bench/build/dlra_magma.app $M $N 1.e-4
+~/numeric-bench/build/dlra_magma.app $M $N 1.e-2
 echo ----------------------------------------------------------------
 
-~/numeric-bench/build/dsvd_cusolver.app $M $N
-~/numeric-bench/build/ssvd_cusolver.app $M $N
-~/numeric-bench/build/zsvd_cusolver.app $M $N
-~/numeric-bench/build/csvd_cusolver.app $M $N
+~/numeric-bench/build/slra_magma.app $M $N 1.e-7
+~/numeric-bench/build/slra_magma.app $M $N 1.e-5
+~/numeric-bench/build/slra_magma.app $M $N 1.e-3
+~/numeric-bench/build/slra_magma.app $M $N 1.e-1
+echo ----------------------------------------------------------------
 
+~/numeric-bench/build/zlra_magma.app $M $N 1.e-14
+~/numeric-bench/build/zlra_magma.app $M $N 1.e-12
+~/numeric-bench/build/zlra_magma.app $M $N 1.e-10
+~/numeric-bench/build/zlra_magma.app $M $N 1.e-8
+~/numeric-bench/build/zlra_magma.app $M $N 1.e-6
+~/numeric-bench/build/zlra_magma.app $M $N 1.e-4
+~/numeric-bench/build/zlra_magma.app $M $N 1.e-2
+echo ----------------------------------------------------------------
+
+~/numeric-bench/build/clra_magma.app $M $N 1.e-7
+~/numeric-bench/build/clra_magma.app $M $N 1.e-5
+~/numeric-bench/build/clra_magma.app $M $N 1.e-3
+~/numeric-bench/build/clra_magma.app $M $N 1.e-1
+echo ----------------------------------------------------------------
+
+~/numeric-bench/build/dsvd_cusolver.app $M $N 1.e-14
+~/numeric-bench/build/dsvd_cusolver.app $M $N 1.e-12
+~/numeric-bench/build/dsvd_cusolver.app $M $N 1.e-10
+~/numeric-bench/build/dsvd_cusolver.app $M $N 1.e-8
+~/numeric-bench/build/dsvd_cusolver.app $M $N 1.e-6
+~/numeric-bench/build/dsvd_cusolver.app $M $N 1.e-4
+~/numeric-bench/build/dsvd_cusolver.app $M $N 1.e-2
+echo ----------------------------------------------------------------
+
+~/numeric-bench/build/ssvd_cusolver.app $M $N 1.e-7
+~/numeric-bench/build/ssvd_cusolver.app $M $N 1.e-5
+~/numeric-bench/build/ssvd_cusolver.app $M $N 1.e-3
+~/numeric-bench/build/ssvd_cusolver.app $M $N 1.e-1
+echo ----------------------------------------------------------------
+
+~/numeric-bench/build/zsvd_cusolver.app $M $N 1.e-14
+~/numeric-bench/build/zsvd_cusolver.app $M $N 1.e-12
+~/numeric-bench/build/zsvd_cusolver.app $M $N 1.e-10
+~/numeric-bench/build/zsvd_cusolver.app $M $N 1.e-8
+~/numeric-bench/build/zsvd_cusolver.app $M $N 1.e-6
+~/numeric-bench/build/zsvd_cusolver.app $M $N 1.e-4
+~/numeric-bench/build/zsvd_cusolver.app $M $N 1.e-2
+echo ----------------------------------------------------------------
+
+~/numeric-bench/build/csvd_cusolver.app $M $N 1.e-7
+~/numeric-bench/build/csvd_cusolver.app $M $N 1.e-5
+~/numeric-bench/build/csvd_cusolver.app $M $N 1.e-3
+~/numeric-bench/build/csvd_cusolver.app $M $N 1.e-1
 echo ----------------------------------------------------------------
 
 ~/numeric-bench/build/dsvd_rankr_cusolver.app $M $N
 ~/numeric-bench/build/ssvd_rankr_cusolver.app $M $N
 ~/numeric-bench/build/zsvd_rankr_cusolver.app $M $N
 ~/numeric-bench/build/csvd_rankr_cusolver.app $M $N
-
 echo ----------------------------------------------------------------

@@ -101,7 +101,8 @@ int32_t main(int32_t argc, char* argv[]) {
   cudaDeviceSynchronize();
   float milliseconds = 0.0f;
   cudaEventElapsedTime(&milliseconds, start, stop);
-  int64_t svd_flops = N * N * (4 * M + 8 * N);
+  int64_t l = k + oversampling;
+  int64_t svd_flops = (4 * (power_iter + 1) * M * N * l) + (l * l * (4 * M + 2 * N));
   double gflops = double(svd_flops) * 1.e-6 / milliseconds;
   std::cout << "cusolver-SGESVDR," << M << "," << N << "," << err << "," << k << "," << milliseconds << "," << gflops << "," << ((hinfo == 0 && status == CUSOLVER_STATUS_SUCCESS) ? "OK" : "ERR") << std::endl;
 
