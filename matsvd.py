@@ -2,6 +2,8 @@ import sys
 import numpy as np
 from numpy.linalg import svd
 
+# This script computes the reference singular values of the centered matrix
+
 def main() -> int:
   M = 1281167
   N = 2048

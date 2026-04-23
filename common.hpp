@@ -97,6 +97,7 @@ void write_matrix_to_csv(int32_t M, int32_t N, const T* A, int32_t lda, const st
       csv << str; idx << bytes << '\n';
     }
     csv.close(); idx.close();
+    printf("[M=%d,N=%d] Matrix is written to %s\n", M, N, file.c_str());
   }
 }
 
@@ -149,38 +150,14 @@ extern "C" void dgemm_(const char*, const char*, const blas_int*, const blas_int
 extern "C" void cgemm_(const char*, const char*, const blas_int*, const blas_int*, const blas_int*, const void*, const void*, const blas_int*, const void*, const blas_int*, const void*, void*, const blas_int*);
 extern "C" void zgemm_(const char*, const char*, const blas_int*, const blas_int*, const blas_int*, const void*, const void*, const blas_int*, const void*, const blas_int*, const void*, void*, const blas_int*);
 
-inline void nngemm(blas_int M, blas_int N, blas_int K, const double* A, blas_int lda, const double* B, blas_int ldb, double* C, blas_int ldc)
-{ char transa = 'N', transb = 'N'; double one = 1., minus_one = -1.; dgemm_(&transa, &transb, &M, &N, &K, &one, A, &lda, B, &ldb, &minus_one, C, &ldc); }
-inline void nngemm(blas_int M, blas_int N, blas_int K, const float* A, blas_int lda, const float* B, blas_int ldb, float* C, blas_int ldc)
-{ char transa = 'N', transb = 'N'; float one = 1.f, minus_one = -1.f; sgemm_(&transa, &transb, &M, &N, &K, &one, A, &lda, B, &ldb, &minus_one, C, &ldc); }
-inline void nngemm(blas_int M, blas_int N, blas_int K, const std::complex<double>* A, blas_int lda, const std::complex<double>* B, blas_int ldb, std::complex<double>* C, blas_int ldc)
-{ char transa = 'N', transb = 'N'; std::complex<double> one(1., 0.), minus_one(-1., 0.); zgemm_(&transa, &transb, &M, &N, &K, &one, A, &lda, B, &ldb, &minus_one, C, &ldc); }
-inline void nngemm(blas_int M, blas_int N, blas_int K, const std::complex<float>* A, blas_int lda, const std::complex<float>* B, blas_int ldb, std::complex<float>* C, blas_int ldc)
-{ char transa = 'N', transb = 'N'; std::complex<float> one(1.f, 0.f), minus_one(-1.f, 0.f); cgemm_(&transa, &transb, &M, &N, &K, &one, A, &lda, B, &ldb, &minus_one, C, &ldc); }
-
-inline void ntgemm(blas_int M, blas_int N, blas_int K, const double* A, blas_int lda, const double* B, blas_int ldb, double* C, blas_int ldc)
-{ char transa = 'N', transb = 'T'; double one = 1., minus_one = -1.; dgemm_(&transa, &transb, &M, &N, &K, &one, A, &lda, B, &ldb, &minus_one, C, &ldc); }
-inline void ntgemm(blas_int M, blas_int N, blas_int K, const float* A, blas_int lda, const float* B, blas_int ldb, float* C, blas_int ldc)
-{ char transa = 'N', transb = 'T'; float one = 1.f, minus_one = -1.f; sgemm_(&transa, &transb, &M, &N, &K, &one, A, &lda, B, &ldb, &minus_one, C, &ldc); }
-inline void ntgemm(blas_int M, blas_int N, blas_int K, const std::complex<double>* A, blas_int lda, const std::complex<double>* B, blas_int ldb, std::complex<double>* C, blas_int ldc)
-{ char transa = 'N', transb = 'C'; std::complex<double> one(1., 0.), minus_one(-1., 0.); zgemm_(&transa, &transb, &M, &N, &K, &one, A, &lda, B, &ldb, &minus_one, C, &ldc); }
-inline void ntgemm(blas_int M, blas_int N, blas_int K, const std::complex<float>* A, blas_int lda, const std::complex<float>* B, blas_int ldb, std::complex<float>* C, blas_int ldc)
-{ char transa = 'N', transb = 'C'; std::complex<float> one(1.f, 0.f), minus_one(-1.f, 0.f); cgemm_(&transa, &transb, &M, &N, &K, &one, A, &lda, B, &ldb, &minus_one, C, &ldc); }
-
-template <class T>
-double check_answer_lra(int32_t rank, int32_t M, int32_t N, const T* A, int32_t lda, const int32_t* jpiv, const T* R, int32_t ldr) {
-  if (rank <= 0 || M <= 0 || N <= 0) return std::numeric_limits<double>::quiet_NaN();
-  std::vector<T> matB(int64_t(M) * int64_t(N)), matC(int64_t(M) * int64_t(rank));
-  for (int32_t i = 0; i < N; ++i) {
-    std::copy_n(&A[int64_t(i) * int64_t(lda)], M, &matB[int64_t(i) * int64_t(M)]);
-    if (i < rank)
-      std::copy_n(&A[int64_t(jpiv[i] - 1) * int64_t(lda)], M, &matC[int64_t(i) * int64_t(M)]);
-  }
-
-  nngemm(M, N, rank, &matC[0], M, R, ldr, &matB[0], M);
-  double err = std::transform_reduce(matB.begin(), matB.end(), 0., std::plus<double>(), [](auto i) { return double(std::norm(i)); });
-  return err;
-}
+inline void nngemm(char transb, blas_int M, blas_int N, blas_int K, const double* A, blas_int lda, const double* B, blas_int ldb, double* C, blas_int ldc)
+{ char transa = 'N'; transb = transb == 'C' ? 'T' : 'N'; double one = 1., minus_one = -1.; dgemm_(&transa, &transb, &M, &N, &K, &one, A, &lda, B, &ldb, &minus_one, C, &ldc); }
+inline void nngemm(char transb, blas_int M, blas_int N, blas_int K, const float* A, blas_int lda, const float* B, blas_int ldb, float* C, blas_int ldc)
+{ char transa = 'N'; transb = transb == 'C' ? 'T' : 'N'; float one = 1.f, minus_one = -1.f; sgemm_(&transa, &transb, &M, &N, &K, &one, A, &lda, B, &ldb, &minus_one, C, &ldc); }
+inline void nngemm(char transb, blas_int M, blas_int N, blas_int K, const std::complex<double>* A, blas_int lda, const std::complex<double>* B, blas_int ldb, std::complex<double>* C, blas_int ldc)
+{ char transa = 'N'; std::complex<double> one(1., 0.), minus_one(-1., 0.); zgemm_(&transa, &transb, &M, &N, &K, &one, A, &lda, B, &ldb, &minus_one, C, &ldc); }
+inline void nngemm(char transb, blas_int M, blas_int N, blas_int K, const std::complex<float>* A, blas_int lda, const std::complex<float>* B, blas_int ldb, std::complex<float>* C, blas_int ldc)
+{ char transa = 'N'; std::complex<float> one(1.f, 0.f), minus_one(-1.f, 0.f); cgemm_(&transa, &transb, &M, &N, &K, &one, A, &lda, B, &ldb, &minus_one, C, &ldc); }
 
 template <class T>
 double check_answer_svd(int32_t M, int32_t N, int32_t rank, const T* U, int32_t ldu, const T* V, int32_t ldv, const T* B, int32_t ldb) {
@@ -188,7 +165,7 @@ double check_answer_svd(int32_t M, int32_t N, int32_t rank, const T* U, int32_t 
   std::vector<T> matB(M * N);
   copy2d(M, N, B, ldb, &matB[0], M);
 
-  ntgemm(M, N, rank, U, ldu, V, ldv, &matB[0], M);
+  nngemm('C', M, N, rank, U, ldu, V, ldv, &matB[0], M);
   double err = std::transform_reduce(matB.begin(), matB.end(), 0., std::plus<double>(), [](auto i) { return double(std::norm(i)); });
   return err;
 }
@@ -203,7 +180,7 @@ double fnorm(int32_t M, int32_t N, const T* A, int32_t lda) {
 
 template <class T>
 double max_elementwise_relerr(int32_t M, int32_t N, const T* ref, int32_t ldr, const T* test, int32_t ldt) {
-  if (M <= 0 || N <= 0) return std::numeric_limits<double>::quiet_NaN();;
+  if (M <= 0 || N <= 0) return std::numeric_limits<double>::quiet_NaN();
   double rel_err = 0.;
   for (int32_t j = 0; j < N; ++j)
     for (int32_t i = 0; i < M; ++i) {
@@ -220,37 +197,13 @@ template <> inline hyacinPrecision_t __precA<float>() { return HYACIN_F32; };
 template <> inline hyacinPrecision_t __precA<std::complex<double>>() { return HYACIN_F64_COMPLEX; };
 template <> inline hyacinPrecision_t __precA<std::complex<float>>() { return HYACIN_F32_COMPLEX; };
 
-template <class T>
-int32_t id_hyac(hyacinHandle_t handle, double epi, int32_t M, int32_t N, int32_t K, const T* A, int32_t lda, int32_t* jpiv, T* R, int32_t ldr, char algo) {
-  int32_t umax; hyacinPrecision_t precA = __precA<T>(), precC; hyacinAlgorithm_t alg;
-
-  hyacinXsyherk_autoTune(epi, 0, u_extra, &umax, precA, &precC, &alg);
-  if (algo == 'C') alg = HYACIN_ALG_CRT;
-    else if (algo == 'L') alg = HYACIN_ALG_LIMBS;
-    else if (algo == 'F') { alg = CUBLAS_FLOAT_ND; precC = precA; }
-
-  int32_t c_bytes; hyacinXelem('A', precC, nullptr, &c_bytes, nullptr);
-
-  void* gram = nullptr, *piv = nullptr;
-  cudaMalloc(&gram, int64_t(N) * int64_t(N) * int64_t(c_bytes));
-  cudaMalloc(&piv, int64_t(N) * sizeof(int32_t));
-
-  hyacinXsyherk(handle, M, N, umax, precA, A, lda, precC, gram, N, alg);
-  int32_t rank = hyacinXGinterp(handle, alg == CUBLAS_FLOAT_ND ? 'U' : 'F', epi, N, K, oversampling, precA, R, ldr, (int32_t*)piv, precC, gram, N);
-
-  hyacinSync_TimerSegments(handle, &kernel_time, &comm_time);
-  cudaMemcpy(jpiv, piv, sizeof(int32_t) * N, cudaMemcpyDefault);
-  cudaFree(gram); cudaFree(piv);
-  return rank;
-}
-
 template <class T, class R>
 int32_t svd_fit_transform(hyacinHandle_t handle, char algo, double epi,
   int32_t M, int32_t N, int32_t K, T* A, int32_t lda, R* S, T* V, int32_t ldv, int32_t Mv, int32_t Nv = 0, int32_t lcol_offset = 0) {
-  int32_t umax; hyacinPrecision_t precA = __precA<T>(), precC; hyacinAlgorithm_t alg;
+  int32_t umax; hyacinPrecision_t precA = __precA<T>(), precC; hyacinAlgorithm_t alg; char use_evd;
   hyacinXsyherk_autoTune(epi, algo == 'N', u_extra, &umax, precA, &precC, &alg);
-  if (algo == 'F') { alg = CUBLAS_FLOAT_ND; precC = precA; }
-  char use_evd = hyacinXGevPcsvd_autoTune(N, K, precC);
+  if (algo == 'F') { alg = CUBLAS_FLOAT_ND; precC = precA; use_evd = 'Y'; }
+  else { use_evd = hyacinXGevPcsvd_autoTune(N, K, precC); }
   int32_t c_bytes; hyacinXelem('A', precC, nullptr, &c_bytes, nullptr);
 
   void* gram = nullptr, *basis = nullptr;
@@ -273,10 +226,10 @@ int32_t svd_fit_transform(hyacinHandle_t handle, char algo, double epi,
 template <class T, class R>
 int32_t svd_fit_transform_1dr(hyacinHandle_t handle, ncclComm_t comm, char algo, double epi,
   int32_t M, int32_t gM, int32_t N, int32_t K, T* A, int32_t lda, R* S, T* V, int32_t ldv, int32_t Mv, int32_t Nv = 0, int32_t lcol_offset = 0) {
-  int32_t umax; hyacinPrecision_t precA = __precA<T>(), precC; hyacinAlgorithm_t alg;
+  int32_t umax; hyacinPrecision_t precA = __precA<T>(), precC; hyacinAlgorithm_t alg; char use_evd;
   hyacinXsyherk_autoTune(epi, algo == 'N', u_extra, &umax, precA, &precC, &alg);
-  if (algo == 'F') { alg = CUBLAS_FLOAT_ND; precC = precA; }
-  char use_evd = hyacinXGevPcsvd_autoTune(N, K, precC);
+  if (algo == 'F') { alg = CUBLAS_FLOAT_ND; precC = precA; use_evd = 'Y'; }
+  else { use_evd = hyacinXGevPcsvd_autoTune(N, K, precC); }
   int32_t c_bytes; hyacinXelem('A', precC, nullptr, &c_bytes, nullptr);
 
   void* gram = nullptr, *basis = nullptr;

@@ -27,7 +27,7 @@ int32_t main(int32_t, char* []) {
   cudaStreamSynchronize(stream);
 
   cudaMemcpy(&one, dev, sizeof(int32_t), cudaMemcpyDeviceToHost);
-  printf("All-reduce: %d\n", one);
+  printf("All-reduce: %d, Expected: %d\n", one, world_size);
   
   cudaFree(dev);
   ncclCommDestroy(comm);

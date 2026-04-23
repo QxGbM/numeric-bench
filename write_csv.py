@@ -1,6 +1,8 @@
 import sys
 import numpy as np
 
+# This script creates a csv file for the centered matrix
+
 def main() -> int:
   M = 1281167
   N = 2048

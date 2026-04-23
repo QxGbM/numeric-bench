@@ -26,8 +26,18 @@ template <class T, class R> inline void run(char prec, int64_t M, int64_t N, int
   cudaEventCreate(&start);
   cudaEventCreate(&stop);
 
+  double err = std::numeric_limits<double>::quiet_NaN();
   if (time_kernel) {
-    svd_fit_transform(handle, algo, epi, M, N, K, d_A, M, d_S, d_V, N, N);
+    int32_t rank = svd_fit_transform(handle, algo, epi, M, N, K, d_A, M, d_S, d_V, N, N);
+
+    std::vector<T> matU(M * K), matV(K * N);
+    cudaMemcpy(matU.data(), d_A, M * K * sizeof(T), cudaMemcpyDeviceToHost);
+    cudaMemcpy(matV.data(), d_V, K * N * sizeof(T), cudaMemcpyDeviceToHost);
+
+    if (!out.empty())
+      write_matrix_to_csv(N, rank, &matV[0], N, out);
+
+    err = std::sqrt(check_answer_svd(M, N, rank, &matU[0], M, &matV[0], N, &matA[0], M) / fnorm(M, N, &matA[0], M));
     cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);
     kernel_time = comm_time = 0.;
   }
@@ -36,7 +46,7 @@ template <class T, class R> inline void run(char prec, int64_t M, int64_t N, int
   int32_t rank = svd_fit_transform(handle, algo, epi, M, N, K, d_A, M, d_S, d_V, N, N);
   cudaEventRecord(stop, handle.cudaStream);
 
-  cudaDeviceSynchronize();
+  cudaStreamSynchronize(handle.cudaStream);
   float milliseconds = 0.0f; cudaEventElapsedTime(&milliseconds, start, stop);
 
   cudaEventDestroy(start);
@@ -46,24 +56,14 @@ template <class T, class R> inline void run(char prec, int64_t M, int64_t N, int
   /* Timed region end */
   auto host_end = std::chrono::high_resolution_clock::now();
 
-  std::vector<T> matU(M * K), matV(K * N); std::vector<R> vecS(K);
-  cudaMemcpy(matU.data(), d_A, M * K * sizeof(T), cudaMemcpyDeviceToHost);
-  cudaMemcpy(matV.data(), d_V, K * N * sizeof(T), cudaMemcpyDeviceToHost);
+  std::vector<R> vecS(K);
   cudaMemcpy(vecS.data(), d_S, K * sizeof(R), cudaMemcpyDeviceToHost);
-  cudaFree(d_A);
-  cudaFree(d_V);
   cudaFree(d_S);
 
-  double err = std::sqrt(check_answer_svd(M, N, rank, &matU[0], M, &matV[0], N, &matA[0], M) / fnorm(M, N, &matA[0], M));
   std::chrono::duration<double, std::milli> host_wtime = host_end - host_start;
   double duration = time_kernel ? double(milliseconds) : host_wtime.count();
-  int64_t flops = ((int64_t(M) + int64_t(N)) * int64_t(rank) * int64_t(2)) + (int64_t(M) * int64_t(N) * int64_t(rank) * int64_t(4));
-  double gflops = double(flops) * 1.e-6 / double(duration);
-
-  printf("%c-SVD,%ld,%ld,%.1le,%.12le,%d,%lf,%lf\n", prec, M, N, epi, err, rank, duration, gflops);
-
-  if (!out.empty())
-    write_matrix_to_csv(N, rank, &matV[0], N, out);
+  printf("%c-SVD [M=%ld,N=%ld,K=%ld] [epi=%.1le] [err=%.12le] [rank=%d] [tts=%lf ms] [kernel=%lf ms] [comm=%lf ms]\n",
+    prec, M, N, K, epi, err, rank, duration, kernel_time, comm_time);
 }
 
 int32_t main(int32_t argc, char* argv[]) {

@@ -9,6 +9,8 @@ from tqdm import tqdm
 import pdb
 import os
 
+# This script generates the extracted features matrix from ImageNet1K
+
 TAR_PATH = "ILSVRC2012_img_train.tar"
 OUTPUT_NPY = "imagenet1k_train_resnet50_features_2048d.npy"
 BATCH_SIZE = 128
@@ -33,7 +35,6 @@ print(f"Memory allocated: {features.nbytes / 1024**3:.2f} GB")
 # Load ResNet50 (pretrained on ImageNet) and extract features
 # --------------------------------------------------------------------
 print("Loading ResNet50 and extracting 2048-d features...")
-# Official pretrained weights (same as the standard ImageNet preprocessor)
 model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
 
 # Remove the final classification layer → 2048-d avgpool features
@@ -84,7 +85,6 @@ with tarfile.open(TAR_PATH, mode="r") as outer_tar:
           batch_tensors = []
           pbar.update(BATCH_SIZE)
 
-# Don't forget the last partial batch
 if batch_tensors:
   batch_tensor = torch.stack(batch_tensors).to(device)
   with torch.no_grad():

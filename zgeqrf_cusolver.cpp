@@ -1,10 +1,6 @@
 
-#include <cusolverDn.h>
-#include <vector>
-#include <complex>
+#include <common.hpp>
 #include <iostream>
-#include <algorithm>
-#include <random>
 
 int32_t main(int32_t argc, char* argv[]) {
   auto cu_err = cudaSetDevice(0);
@@ -12,7 +8,7 @@ int32_t main(int32_t argc, char* argv[]) {
   { fprintf(stderr, "%s\n", cudaGetErrorString(cu_err)); return -1; }
   
   cudaStream_t stream;
-  cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
+  cudaStreamCreate(&stream);
 
   cusolverDnHandle_t cusolverH;
   cusolverDnCreate(&cusolverH);
@@ -28,10 +24,8 @@ int32_t main(int32_t argc, char* argv[]) {
   int64_t M = 1 < argc ? std::atoi(argv[1]) : 1024;
   int64_t N = 2 < argc ? std::atoi(argv[2]) : 128;
 
-  std::mt19937_64 gen(42);
-  std::normal_distribution<double> dist(0., 32.);
-  std::vector<double> matA(M * N * 2);
-  std::generate(matA.begin(), matA.end(), [&]() { return dist(gen); });
+  std::vector<std::complex<double>> matA(M * N);
+  matrix_generator<std::complex<double>>(M, N).generate_block(1., 512, 512, &matA[0], M);
 
   std::complex<double>* dA = nullptr, * dTau = nullptr;
   int32_t* info = nullptr;

@@ -11,6 +11,8 @@ import time
 import logging
 import argparse
 
+# This script reads in the centered CSV and performs a distributed t-SVD using cuml-dask
+
 if __name__ == '__main__':
   mp.freeze_support()
 
