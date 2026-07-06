@@ -206,18 +206,18 @@ int32_t svd_fit_transform(hyacinHandle_t handle, char algo, double epi,
   else { use_evd = hyacinXGevPcsvd_autoTune(N, K, precC); }
   int32_t c_bytes; hyacinXelem('A', precC, nullptr, &c_bytes, nullptr);
 
-  void* gram = nullptr, *basis = nullptr;
+  void* gram = nullptr;
+  int32_t ldx = N * int32_t(c_bytes / sizeof(T));
   cudaMalloc(&gram, int64_t(N) * int64_t(N) * int64_t(c_bytes));
-  cudaMalloc(&basis, int64_t(N) * int64_t(K) * int64_t(sizeof(T)));
 
   hyacinXsyherk(handle, M, N, umax, precA, A, lda, precC, gram, N, alg);
   int32_t rank = 0;
-  rank = hyacinXGevPcsvd(handle, use_evd, alg == CUBLAS_FLOAT_ND ? 'U' : 'F', epi, N, K, oversampling, precA, S, basis, N, precC, gram, N);
-  hyacinXtransform(handle, M, N, rank, precA, A, lda, basis, N);
-  hyacinXtransform(handle, Mv, Nv, rank, precA, V, ldv, &((const T*)basis)[lcol_offset], N);
+  rank = hyacinXGevPcsvd(handle, use_evd, alg == CUBLAS_FLOAT_ND ? 'U' : 'F', epi, N, K, oversampling, precA, S, precC, gram, N);
+  hyacinXtransform(handle, M, N, rank, precA, A, lda, gram, ldx);
+  hyacinXtransform(handle, Mv, Nv, rank, precA, V, ldv, &((const T*)gram)[lcol_offset], ldx);
 
   hyacinSync_TimerSegments(handle, &kernel_time, &comm_time);
-  cudaFree(gram); cudaFree(basis);
+  cudaFree(gram);
   return rank;
 }
 
@@ -232,17 +232,17 @@ int32_t svd_fit_transform_1dr(hyacinHandle_t handle, ncclComm_t comm, char algo,
   else { use_evd = hyacinXGevPcsvd_autoTune(N, K, precC); }
   int32_t c_bytes; hyacinXelem('A', precC, nullptr, &c_bytes, nullptr);
 
-  void* gram = nullptr, *basis = nullptr;
+  void* gram = nullptr;
+  int32_t ldx = N * int32_t(c_bytes / sizeof(T));
   cudaMalloc(&gram, int64_t(N) * int64_t(N) * int64_t(c_bytes));
-  cudaMalloc(&basis, int64_t(N) * int64_t(K) * int64_t(sizeof(T)));
 
   hyacinXsyherk1Drow(handle, M, gM, N, umax, precA, A, lda, precC, gram, N, alg, comm);
-  int32_t rank = hyacinXGevPcsvd(handle, use_evd, alg == CUBLAS_FLOAT_ND ? 'U' : 'F', epi, N, K, oversampling, precA, S, basis, N, precC, gram, N);
-  hyacinXtransform(handle, M, N, rank, precA, A, lda, basis, N);
-  hyacinXtransform(handle, Mv, Nv, rank, precA, V, ldv, &((const T*)basis)[lcol_offset], N);
+  int32_t rank = hyacinXGevPcsvd(handle, use_evd, alg == CUBLAS_FLOAT_ND ? 'U' : 'F', epi, N, K, oversampling, precA, S, precC, gram, N);
+  hyacinXtransform(handle, M, N, rank, precA, A, lda, gram, ldx);
+  hyacinXtransform(handle, Mv, Nv, rank, precA, V, ldv, &((const T*)gram)[lcol_offset], ldx);
 
   hyacinSync_TimerSegments(handle, &kernel_time, &comm_time);
-  cudaFree(gram); cudaFree(basis);
+  cudaFree(gram);
   return rank;
 }
 

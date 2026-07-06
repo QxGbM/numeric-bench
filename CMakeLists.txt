@@ -9,7 +9,7 @@ option (USE_NCCL "Use NCCL" ON)
 option (BOOTSTRAP_POSIX "Use POSIX fork BOOTSTRAP" ON)
 option (BOOTSTRAP_MPI "Use MPI BOOTSTRAP" ON)
 
-set(Hyacin_DIR "/home/ma/hyacin-build/lib/cmake")
+set(Hyacin_DIR "/home/ma/hyacinth/build/")
 find_package(Hyacin REQUIRED)
 find_package(BLAS REQUIRED)
 
