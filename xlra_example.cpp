@@ -6,16 +6,24 @@
 template <class T>
 double check_answer_lra(int32_t rank, int32_t M, int32_t N, const T* A, int32_t lda, const int32_t* jpiv, const T* R, int32_t ldr) {
   if (rank <= 0 || M <= 0 || N <= 0) return std::numeric_limits<double>::quiet_NaN();
-  std::vector<T> matB(int64_t(M) * int64_t(N)), matC(int64_t(M) * int64_t(rank));
-  for (int32_t i = 0; i < N; ++i) {
-    std::copy_n(&A[int64_t(i) * int64_t(lda)], M, &matB[int64_t(i) * int64_t(M)]);
-    if (i < rank)
-      std::copy_n(&A[int64_t(jpiv[i] - 1) * int64_t(lda)], M, &matC[int64_t(i) * int64_t(M)]);
+  if constexpr(std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, std::complex<std::float16_t>>) {
+    std::vector<std::complex<double>> matB(int64_t(M) * int64_t(N)), matC(int64_t(M) * int64_t(rank)), matR(int64_t(rank) * int64_t(N));
+    for (int32_t i = 0; i < rank; ++i)
+      copy2d(M, 1, &A[int64_t(jpiv[i] - 1) * int64_t(lda)], lda, &matC[int64_t(i) * int64_t(M)], M);
+    copy2d(M, N, A, lda, &matB[0], M); copy2d(N, rank, R, ldr, &matR[0], N);
+    nngemm(M, N, rank, &matC[0], M, &matR[0], N, &matB[0], M);
+    double err = std::transform_reduce(matB.begin(), matB.end(), 0., std::plus<double>(), [](auto i) { return std::norm(i); });
+    return err;
   }
-
-  nngemm('N', M, N, rank, &matC[0], M, R, ldr, &matB[0], M);
-  double err = std::transform_reduce(matB.begin(), matB.end(), 0., std::plus<double>(), [](auto i) { return double(std::norm(i)); });
-  return err;
+  else {
+    std::vector<double> matB(int64_t(M) * int64_t(N)), matC(int64_t(M) * int64_t(rank)), matR(int64_t(rank) * int64_t(N));
+    for (int32_t i = 0; i < rank; ++i)
+      copy2d(M, 1, &A[int64_t(jpiv[i] - 1) * int64_t(lda)], lda, &matC[int64_t(i) * int64_t(M)], M);
+    copy2d(M, N, A, lda, &matB[0], M); copy2d(N, rank, R, ldr, &matR[0], N);
+    nngemm(M, N, rank, &matC[0], M, &matR[0], N, &matB[0], M);
+    double err = std::transform_reduce(matB.begin(), matB.end(), 0., std::plus<double>(), [](auto i) { return std::norm(i); });
+    return err;
+  }
 }
 
 template <class T>
@@ -27,7 +35,7 @@ int32_t id_hyac(hyacinHandle_t handle, double epi, int32_t M, int32_t N, int32_t
     else if (algo == 'L') alg = HYACIN_ALG_LIMBS;
     else if (algo == 'F') { alg = CUBLAS_FLOAT_ND; precC = precA; }
 
-  int32_t c_bytes; hyacinXelem('A', precC, nullptr, &c_bytes, nullptr);
+  int32_t c_bytes = hyacinXelem('A', &precC);
 
   void* gram = nullptr, *piv = nullptr;
   cudaMalloc(&gram, int64_t(N) * int64_t(N) * int64_t(c_bytes));
@@ -123,8 +131,10 @@ int32_t main(int32_t argc, char* argv[]) {
   switch(prec) {
     case 'D': run<double>(prec, M, N, epi, algo); break;
     case 'S': run<float>(prec, M, N, epi, algo); break;
+    case 'H': run<std::float16_t>(prec, M, N, epi, algo); break;
     case 'Z': run<std::complex<double>>(prec, M, N, epi, algo); break;
     case 'C': run<std::complex<float>>(prec, M, N, epi, algo); break;
+    case 'J': run<std::complex<std::float16_t>>(prec, M, N, epi, algo); break;
     default: break;
   }
 

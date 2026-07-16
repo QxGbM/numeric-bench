@@ -3,6 +3,7 @@
 #include <hyacin.h>
 #include <vector>
 #include <complex>
+#include <stdfloat>
 #include <algorithm>
 #include <numeric>
 #include <fstream>
@@ -10,6 +11,7 @@
 #include <string>
 #include <tuple>
 #include <stdexcept>
+#include <type_traits>
 
 using blas_int = int; // LP64 for blas
 const int32_t oversampling = 10; // increase for better LRA accuracy
@@ -17,9 +19,8 @@ const int32_t u_extra = 6; // increase for better Quantization accuracy
 const int32_t time_kernel = 1;
 double kernel_time = 0., comm_time = 0.;
 
-template <class T>
-inline void copy2d(int32_t M, int32_t N, const T* A, int32_t lda, T* B, int32_t ldb)
-{ for (int32_t j = 0; j < N; ++j) { std::copy_n(&A[int64_t(j) * int64_t(lda)], M, &B[int64_t(j) * int64_t(ldb)]); } }
+template <class S, class T> inline void copy2d(int32_t M, int32_t N, const S* A, int32_t lda, T* B, int32_t ldb)
+{ for (int32_t j = 0; j < N; ++j) { std::transform(&A[int64_t(j) * int64_t(lda)], &A[int64_t(j) * int64_t(lda) + int64_t(M)], &B[int64_t(j) * int64_t(ldb)], [](S x) { return T(x); }); } }
 
 std::string replace_suffix(const std::string& str, const std::string& suffix) {
   std::string result = str;
@@ -29,17 +30,9 @@ std::string replace_suffix(const std::string& str, const std::string& suffix) {
   return result;
 }
 
-inline void parse_char(double& a, const std::string& s) { a = std::stod(s); }
-inline void parse_char(float& a, const std::string& s) { a = std::stof(s); }
-inline void parse_char(std::complex<double>& a, const std::string& s) {
-  std::string::size_type l; double rl = std::stod(s, &l);
-  try { double im = std::stod(s.substr(l)); a = std::complex<double>(rl, im); }
-  catch (const std::invalid_argument&) { a = std::complex<double>(rl, 0.); }
-}
-inline void parse_char(std::complex<float>& a, const std::string& s) {
-  std::string::size_type l; float rl = std::stod(s, &l);
-  try { float im = std::stof(s.substr(l)); a = std::complex<float>(rl, im); }
-  catch (const std::invalid_argument&) { a = std::complex<float>(rl, 0.f); }
+template <class T> inline T complex_float(double r, double i) {
+  if constexpr(std::is_same_v<T, std::complex<std::float16_t>>) return std::complex<std::float16_t>(std::float16_t(r), std::float16_t(i));
+    else return T(r, i);
 }
 
 template <class T>
@@ -63,7 +56,11 @@ void matrix_from_row_major_csv(int32_t M, int32_t N, int32_t mb, int32_t nb, T* 
       for (int32_t y = 0; y < rows; ++y)
         for (int32_t x = 0; x < N; ++x) {
           std::string Ayx(str, std::distance(str, std::find_if(str, end, cmp)));
-          parse_char(mat[int64_t(y) + int64_t(x) * int64_t(rows)], Ayx);
+          int64_t i = int64_t(y) + int64_t(x) * int64_t(rows);
+          if constexpr(std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, std::complex<std::float16_t>>) {
+            std::string::size_type l; double rl = std::stod(Ayx, &l);
+            try { double im = std::stod(Ayx.substr(l)); mat[i] = complex_float<T>(rl, im); } catch (const std::invalid_argument&) { mat[i] = complex_float<T>(rl, 0.); }
+          } else { mat[i] = T(std::stod(Ayx)); }
           str += Ayx.length(); while(cmp(*str)) ++str;
         }
     }
@@ -76,13 +73,6 @@ void matrix_from_row_major_csv(int32_t M, int32_t N, int32_t mb, int32_t nb, T* 
     csv.close();
 }
 
-inline std::string conv_to_string(double f) { char s[30]; std::sprintf(s, "%.18le", f); return std::string(s); }
-inline std::string conv_to_string(float f) { char s[30]; std::sprintf(s, "%.18le", double(f)); return std::string(s); }
-inline std::string conv_to_string(std::complex<double> f)
-{ char s[70]; char sign = 0. <= f.imag() ? '+':'-'; std::sprintf(s, " (%.18le%c%.18lej)", f.real(), sign, std::abs(f.imag())); return std::string(s); }
-inline std::string conv_to_string(std::complex<float> f)
-{ char s[70]; char sign = 0. <= f.imag() ? '+':'-'; std::sprintf(s, " (%.18le%c%.18lej)", double(f.real()), sign, double(std::fabs(f.imag()))); return std::string(s); }
-
 template <class T>
 void write_matrix_to_csv(int32_t M, int32_t N, const T* A, int32_t lda, const std::string& file) {
   std::ofstream csv(replace_suffix(file, "csv")), idx(replace_suffix(file, "cache"));
@@ -90,9 +80,13 @@ void write_matrix_to_csv(int32_t M, int32_t N, const T* A, int32_t lda, const st
     int64_t bytes = 0; idx << "0\n";
     for (int32_t i = 0; i < M; ++i) {
       std::string str;
-      for (int32_t j = 0; j < N; ++j)
-        if (j == 0) str += conv_to_string(A[int64_t(i) + int64_t(j) * int64_t(lda)]);
-          else str += "," + conv_to_string(A[int64_t(i) + int64_t(j) * int64_t(lda)]);
+      for (int32_t j = 0; j < N; ++j) {
+        int64_t k = int64_t(i) + int64_t(j) * int64_t(lda);
+        char s[70];
+        if constexpr(std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, std::complex<std::float16_t>>)
+        { char sign = 0. <= A[k].imag() ? '+':'-'; std::sprintf(s, " (%.18le%c%.18lej)", double(A[k].real()), sign, std::abs(double(A[k].imag()))); } else { std::sprintf(s, "%.18le", double(A[k])); }
+        str += (j == 0 ? "" : ",") + std::string(s);
+      }
       str += '\n'; bytes += str.size();
       csv << str; idx << bytes << '\n';
     }
@@ -117,11 +111,6 @@ template <class T> struct matrix_generator {
     }
   }
 
-  inline static void matrix_eval(double& a, double d, double w) { a = std::cos(w * d) / d; }
-  inline static void matrix_eval(float& a, double d, double w) { a = float(std::cos(w * d) / d); }
-  inline static void matrix_eval(std::complex<double>& a, double d, double w) { a = std::complex<double>(std::cos(w * d) / d, std::sin(w * d) / d); }
-  inline static void matrix_eval(std::complex<float>& a, double d, double w) { a = std::complex<float>(float(std::cos(w * d) / d), float(std::sin(w * d) / d)); }
-
   void generate_block(double w, int32_t mb, int32_t nb, T* A, int32_t lda, int32_t grid_row = 0, int32_t grid_col = 0, int32_t tile_m = 1, int32_t tile_n = 1) {
     int64_t row_offset = int64_t(grid_row) * int64_t(mb), col_offset = int64_t(grid_col) * int64_t(nb);
     for (int64_t iA = row_offset, y = 0; iA < gM; iA = row_offset + int64_t(tile_m) * (y += int64_t(mb))) {
@@ -137,7 +126,9 @@ template <class T> struct matrix_generator {
             double diff_y = bodies[i_loc + int64_t(1)] - pt_j[1];
             double diff_z = bodies[i_loc + int64_t(2)] - pt_j[2];
             double d = std::sqrt(diff_x * diff_x + diff_y * diff_y + diff_z * diff_z);
-            matrix_eval(A[(i + y) + (j + x) * int64_t(lda)], d, w);
+            int64_t k = (i + y) + (j + x) * int64_t(lda);
+            if constexpr(std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, std::complex<std::float16_t>>)
+            { A[k] = complex_float<T>(std::cos(w * d) / d, std::sin(w * d) / d); } else { A[k] = T(std::cos(w * d) / d); }
           }
         }
       }
@@ -145,29 +136,34 @@ template <class T> struct matrix_generator {
   }
 };
 
-extern "C" void sgemm_(const char*, const char*, const blas_int*, const blas_int*, const blas_int*, const float*, const float*, const blas_int*, const float*, const blas_int*, const float*, float*, const blas_int*);
 extern "C" void dgemm_(const char*, const char*, const blas_int*, const blas_int*, const blas_int*, const double*, const double*, const blas_int*, const double*, const blas_int*, const double*, double*, const blas_int*);
-extern "C" void cgemm_(const char*, const char*, const blas_int*, const blas_int*, const blas_int*, const void*, const void*, const blas_int*, const void*, const blas_int*, const void*, void*, const blas_int*);
 extern "C" void zgemm_(const char*, const char*, const blas_int*, const blas_int*, const blas_int*, const void*, const void*, const blas_int*, const void*, const blas_int*, const void*, void*, const blas_int*);
-
-inline void nngemm(char transb, blas_int M, blas_int N, blas_int K, const double* A, blas_int lda, const double* B, blas_int ldb, double* C, blas_int ldc)
-{ char transa = 'N'; transb = transb == 'C' ? 'T' : 'N'; double one = 1., minus_one = -1.; dgemm_(&transa, &transb, &M, &N, &K, &one, A, &lda, B, &ldb, &minus_one, C, &ldc); }
-inline void nngemm(char transb, blas_int M, blas_int N, blas_int K, const float* A, blas_int lda, const float* B, blas_int ldb, float* C, blas_int ldc)
-{ char transa = 'N'; transb = transb == 'C' ? 'T' : 'N'; float one = 1.f, minus_one = -1.f; sgemm_(&transa, &transb, &M, &N, &K, &one, A, &lda, B, &ldb, &minus_one, C, &ldc); }
-inline void nngemm(char transb, blas_int M, blas_int N, blas_int K, const std::complex<double>* A, blas_int lda, const std::complex<double>* B, blas_int ldb, std::complex<double>* C, blas_int ldc)
-{ char transa = 'N'; std::complex<double> one(1., 0.), minus_one(-1., 0.); zgemm_(&transa, &transb, &M, &N, &K, &one, A, &lda, B, &ldb, &minus_one, C, &ldc); }
-inline void nngemm(char transb, blas_int M, blas_int N, blas_int K, const std::complex<float>* A, blas_int lda, const std::complex<float>* B, blas_int ldb, std::complex<float>* C, blas_int ldc)
-{ char transa = 'N'; std::complex<float> one(1.f, 0.f), minus_one(-1.f, 0.f); cgemm_(&transa, &transb, &M, &N, &K, &one, A, &lda, B, &ldb, &minus_one, C, &ldc); }
+inline void nngemm(blas_int M, blas_int N, blas_int K, const double* A, blas_int lda, const double* B, blas_int ldb, double* C, blas_int ldc)
+{ char transa = 'N', transb = 'T'; double one = 1., minus_one = -1.; dgemm_(&transa, &transb, &M, &N, &K, &one, A, &lda, B, &ldb, &minus_one, C, &ldc); }
+inline void nngemm(blas_int M, blas_int N, blas_int K, const std::complex<double>* A, blas_int lda, const std::complex<double>* B, blas_int ldb, std::complex<double>* C, blas_int ldc)
+{ char transa = 'N', transb = 'C'; std::complex<double> one(1., 0.), minus_one(-1., 0.); zgemm_(&transa, &transb, &M, &N, &K, &one, A, &lda, B, &ldb, &minus_one, C, &ldc); }
 
 template <class T>
 double check_answer_svd(int32_t M, int32_t N, int32_t rank, const T* U, int32_t ldu, const T* V, int32_t ldv, const T* B, int32_t ldb) {
   if (rank <= 0 || M <= 0 || N <= 0) return std::numeric_limits<double>::quiet_NaN();
-  std::vector<T> matB(M * N);
-  copy2d(M, N, B, ldb, &matB[0], M);
-
-  nngemm('C', M, N, rank, U, ldu, V, ldv, &matB[0], M);
-  double err = std::transform_reduce(matB.begin(), matB.end(), 0., std::plus<double>(), [](auto i) { return double(std::norm(i)); });
-  return err;
+  if constexpr(std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, std::complex<std::float16_t>>) {
+    std::vector<std::complex<double>> matU(M * rank), matV(N * rank), matB(M * N);
+    copy2d(M, rank, U, ldu, &matU[0], M);
+    copy2d(N, rank, V, ldv, &matV[0], N);
+    copy2d(M, N, B, ldb, &matB[0], M);
+    nngemm(M, N, rank, &matU[0], M, &matV[0], N, &matB[0], M);
+    double err = std::transform_reduce(matB.begin(), matB.end(), 0., std::plus<double>(), [](auto i) { return std::norm(i); });
+    return err;
+  }
+  else {
+    std::vector<double> matU(M * rank), matV(N * rank), matB(M * N);
+    copy2d(M, rank, U, ldu, &matU[0], M);
+    copy2d(N, rank, V, ldv, &matV[0], N);
+    copy2d(M, N, B, ldb, &matB[0], M);
+    nngemm(M, N, rank, &matU[0], M, &matV[0], N, &matB[0], M);
+    double err = std::transform_reduce(matB.begin(), matB.end(), 0., std::plus<double>(), [](auto i) { return std::norm(i); });
+    return err;
+  }
 }
 
 template <class T>
@@ -194,8 +190,10 @@ double max_elementwise_relerr(int32_t M, int32_t N, const T* ref, int32_t ldr, c
 template <class T> inline hyacinPrecision_t __precA();
 template <> inline hyacinPrecision_t __precA<double>() { return HYACIN_F64; };
 template <> inline hyacinPrecision_t __precA<float>() { return HYACIN_F32; };
+template <> inline hyacinPrecision_t __precA<std::float16_t>() { return HYACIN_F16; };
 template <> inline hyacinPrecision_t __precA<std::complex<double>>() { return HYACIN_F64_COMPLEX; };
 template <> inline hyacinPrecision_t __precA<std::complex<float>>() { return HYACIN_F32_COMPLEX; };
+template <> inline hyacinPrecision_t __precA<std::complex<std::float16_t>>() { return HYACIN_F16_COMPLEX; };
 
 template <class T, class R>
 int32_t svd_fit_transform(hyacinHandle_t handle, char algo, double epi,
@@ -204,7 +202,7 @@ int32_t svd_fit_transform(hyacinHandle_t handle, char algo, double epi,
   hyacinXsyherk_autoTune(epi, algo == 'N', u_extra, &umax, precA, &precC, &alg);
   if (algo == 'F') { alg = CUBLAS_FLOAT_ND; precC = precA; use_evd = 'Y'; }
   else { use_evd = hyacinXGevPcsvd_autoTune(N, K, precC); }
-  int32_t c_bytes; hyacinXelem('A', precC, nullptr, &c_bytes, nullptr);
+  int32_t c_bytes = hyacinXelem('A', &precC);
 
   void* gram = nullptr;
   int32_t ldx = N * int32_t(c_bytes / sizeof(T));
@@ -230,7 +228,7 @@ int32_t svd_fit_transform_1dr(hyacinHandle_t handle, ncclComm_t comm, char algo,
   hyacinXsyherk_autoTune(epi, algo == 'N', u_extra, &umax, precA, &precC, &alg);
   if (algo == 'F') { alg = CUBLAS_FLOAT_ND; precC = precA; use_evd = 'Y'; }
   else { use_evd = hyacinXGevPcsvd_autoTune(N, K, precC); }
-  int32_t c_bytes; hyacinXelem('A', precC, nullptr, &c_bytes, nullptr);
+  int32_t c_bytes = hyacinXelem('A', &precC);
 
   void* gram = nullptr;
   int32_t ldx = N * int32_t(c_bytes / sizeof(T));
