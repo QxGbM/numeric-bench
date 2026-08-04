@@ -92,10 +92,10 @@ int32_t main(int32_t argc, char* argv[]) {
   switch(prec) {
     case 'D': run<double, double>(prec, M, N, K, algo, epi, file, out); break;
     case 'S': run<float, float>(prec, M, N, K, algo, epi, file, out); break;
-    case 'H': run<std::float16_t, std::float16_t>(prec, M, N, K, algo, epi, file, out); break;
+    case 'H': run<__half, __half>(prec, M, N, K, algo, epi, file, out); break;
     case 'Z': run<std::complex<double>, double>(prec, M, N, K, algo, epi, file, out); break;
     case 'C': run<std::complex<float>, float>(prec, M, N, K, algo, epi, file, out); break;
-    case 'J': run<std::complex<std::float16_t>, std::float16_t>(prec, M, N, K, algo, epi, file, out); break;
+    case 'J': run<__half2, __half>(prec, M, N, K, algo, epi, file, out); break;
     default: break;
   }
 

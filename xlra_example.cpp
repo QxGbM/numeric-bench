@@ -6,7 +6,7 @@
 template <class T>
 double check_answer_lra(int32_t rank, int32_t M, int32_t N, const T* A, int32_t lda, const int32_t* jpiv, const T* R, int32_t ldr) {
   if (rank <= 0 || M <= 0 || N <= 0) return std::numeric_limits<double>::quiet_NaN();
-  if constexpr(std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, std::complex<std::float16_t>>) {
+  if constexpr(std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, __half2>) {
     std::vector<std::complex<double>> matB(int64_t(M) * int64_t(N)), matC(int64_t(M) * int64_t(rank)), matR(int64_t(rank) * int64_t(N));
     for (int32_t i = 0; i < rank; ++i)
       copy2d(M, 1, &A[int64_t(jpiv[i] - 1) * int64_t(lda)], lda, &matC[int64_t(i) * int64_t(M)], M);
@@ -131,10 +131,10 @@ int32_t main(int32_t argc, char* argv[]) {
   switch(prec) {
     case 'D': run<double>(prec, M, N, epi, algo); break;
     case 'S': run<float>(prec, M, N, epi, algo); break;
-    case 'H': run<std::float16_t>(prec, M, N, epi, algo); break;
+    case 'H': run<__half>(prec, M, N, epi, algo); break;
     case 'Z': run<std::complex<double>>(prec, M, N, epi, algo); break;
     case 'C': run<std::complex<float>>(prec, M, N, epi, algo); break;
-    case 'J': run<std::complex<std::float16_t>>(prec, M, N, epi, algo); break;
+    case 'J': run<__half2>(prec, M, N, epi, algo); break;
     default: break;
   }
 
