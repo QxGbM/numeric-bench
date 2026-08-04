@@ -15,7 +15,7 @@
 
 using blas_int = int; // LP64 for blas
 const int32_t oversampling = 10; // increase for better LRA accuracy
-const int32_t u_extra = 6; // increase for better Quantization accuracy
+const int32_t u_extra = 7; // increase for better Quantization accuracy
 const int32_t time_kernel = 1;
 double kernel_time = 0., comm_time = 0.;
 
