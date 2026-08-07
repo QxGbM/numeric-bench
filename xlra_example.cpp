@@ -30,10 +30,8 @@ template <class T>
 int32_t id_hyac(hyacinHandle_t handle, double epi, int32_t M, int32_t N, int32_t K, const T* A, int32_t lda, int32_t* jpiv, T* R, int32_t ldr, char algo) {
   int32_t umax; hyacinPrecision_t precA = __precA<T>(), precC; hyacinAlgorithm_t alg;
 
-  hyacinXsyherk_autoTune(epi, 0, u_extra, &umax, precA, &precC, &alg);
-  if (algo == 'C') alg = HYACIN_ALG_CRT;
-    else if (algo == 'L') alg = HYACIN_ALG_LIMBS;
-    else if (algo == 'F') { alg = CUBLAS_FLOAT_ND; precC = precA; }
+  hyacinXsyherk_autoTune(epi, u_extra, &umax, precA, &precC, &alg);
+  if (algo == 'C') alg = HYACIN_ALG_CRT; else if (algo == 'L') alg = HYACIN_ALG_LIMBS;
 
   int32_t c_bytes = hyacinXelem('A', &precC);
 
@@ -42,7 +40,7 @@ int32_t id_hyac(hyacinHandle_t handle, double epi, int32_t M, int32_t N, int32_t
   cudaMalloc(&piv, int64_t(N) * sizeof(int32_t));
 
   hyacinXsyherk(handle, M, N, umax, precA, A, lda, precC, gram, N, alg);
-  int32_t rank = hyacinXGinterp(handle, alg == CUBLAS_FLOAT_ND ? 'U' : 'F', epi, N, K, oversampling, precA, R, ldr, (int32_t*)piv, precC, gram, N);
+  int32_t rank = hyacinXGinterp(handle, 'U', epi, N, K, oversampling, precA, R, ldr, (int32_t*)piv, precC, gram, N);
 
   hyacinSync_TimerSegments(handle, &kernel_time, &comm_time);
   cudaMemcpy(jpiv, piv, sizeof(int32_t) * N, cudaMemcpyDefault);

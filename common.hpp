@@ -15,7 +15,7 @@
 
 using blas_int = int; // LP64 for blas
 const int32_t oversampling = 10; // increase for better LRA accuracy
-const int32_t u_extra = 7; // increase for better Quantization accuracy
+const int32_t u_extra = 6; // increase for better Quantization accuracy
 const int32_t time_kernel = 1;
 double kernel_time = 0., comm_time = 0.;
 
@@ -209,9 +209,10 @@ template <class T, class R>
 int32_t svd_fit_transform(hyacinHandle_t handle, char algo, double epi,
   int32_t M, int32_t N, int32_t K, T* A, int32_t lda, R* S, T* V, int32_t ldv, int32_t Mv, int32_t Nv = 0, int32_t lcol_offset = 0) {
   int32_t umax; hyacinPrecision_t precA = __precA<T>(), precC; hyacinAlgorithm_t alg; char use_evd;
-  hyacinXsyherk_autoTune(epi, algo == 'N', u_extra, &umax, precA, &precC, &alg);
-  if (algo == 'F') { alg = CUBLAS_FLOAT_ND; precC = precA; use_evd = 'Y'; }
-  else { use_evd = hyacinXGevPcsvd_autoTune(N, K, precC); }
+  hyacinXsyherk_autoTune(epi, u_extra, &umax, precA, &precC, &alg);
+  if (algo == 'C') alg = HYACIN_ALG_CRT; else if (algo == 'L') alg = HYACIN_ALG_LIMBS;
+
+  use_evd = hyacinXGevPcsvd_autoTune(N, K, precC);
   int32_t c_bytes = hyacinXelem('A', &precC);
 
   void* gram = nullptr;
@@ -220,7 +221,7 @@ int32_t svd_fit_transform(hyacinHandle_t handle, char algo, double epi,
 
   hyacinXsyherk(handle, M, N, umax, precA, A, lda, precC, gram, N, alg);
   int32_t rank = 0;
-  rank = hyacinXGevPcsvd(handle, use_evd, alg == CUBLAS_FLOAT_ND ? 'U' : 'F', epi, N, K, oversampling, precA, S, precC, gram, N);
+  rank = hyacinXGevPcsvd(handle, use_evd, 'U', epi, N, K, oversampling, precA, S, precC, gram, N);
   hyacinXtransform(handle, M, N, rank, precA, A, lda, gram, ldx);
   hyacinXtransform(handle, Mv, Nv, rank, precA, V, ldv, &((const T*)gram)[lcol_offset], ldx);
 
@@ -235,9 +236,10 @@ template <class T, class R>
 int32_t svd_fit_transform_1dr(hyacinHandle_t handle, ncclComm_t comm, char algo, double epi,
   int32_t M, int32_t gM, int32_t N, int32_t K, T* A, int32_t lda, R* S, T* V, int32_t ldv, int32_t Mv, int32_t Nv = 0, int32_t lcol_offset = 0) {
   int32_t umax; hyacinPrecision_t precA = __precA<T>(), precC; hyacinAlgorithm_t alg; char use_evd;
-  hyacinXsyherk_autoTune(epi, algo == 'N', u_extra, &umax, precA, &precC, &alg);
-  if (algo == 'F') { alg = CUBLAS_FLOAT_ND; precC = precA; use_evd = 'Y'; }
-  else { use_evd = hyacinXGevPcsvd_autoTune(N, K, precC); }
+  hyacinXsyherk_autoTune(epi, u_extra, &umax, precA, &precC, &alg);
+  if (algo == 'C') alg = HYACIN_ALG_CRT; else if (algo == 'L') alg = HYACIN_ALG_LIMBS;
+
+  use_evd = hyacinXGevPcsvd_autoTune(N, K, precC);
   int32_t c_bytes = hyacinXelem('A', &precC);
 
   void* gram = nullptr;
@@ -245,7 +247,7 @@ int32_t svd_fit_transform_1dr(hyacinHandle_t handle, ncclComm_t comm, char algo,
   cudaMalloc(&gram, int64_t(N) * int64_t(N) * int64_t(c_bytes));
 
   hyacinXsyherk1Drow(handle, M, gM, N, umax, precA, A, lda, precC, gram, N, alg, comm);
-  int32_t rank = hyacinXGevPcsvd(handle, use_evd, alg == CUBLAS_FLOAT_ND ? 'U' : 'F', epi, N, K, oversampling, precA, S, precC, gram, N);
+  int32_t rank = hyacinXGevPcsvd(handle, use_evd, 'U', epi, N, K, oversampling, precA, S, precC, gram, N);
   hyacinXtransform(handle, M, N, rank, precA, A, lda, gram, ldx);
   hyacinXtransform(handle, Mv, Nv, rank, precA, V, ldv, &((const T*)gram)[lcol_offset], ldx);
 
