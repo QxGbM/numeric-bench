@@ -208,8 +208,8 @@ template <> inline hyacinPrecision_t __precA<__half2>() { return HYACIN_F16_COMP
 template <class T, class R>
 int32_t svd_fit_transform(hyacinHandle_t handle, char algo, double epi,
   int32_t M, int32_t N, int32_t K, T* A, int32_t lda, R* S, T* V, int32_t ldv, int32_t Mv, int32_t Nv = 0, int32_t lcol_offset = 0) {
-  int32_t umax; hyacinPrecision_t precA = __precA<T>(), precC; hyacinAlgorithm_t alg; char use_evd;
-  hyacinXsyherk_autoTune(epi, u_extra, &umax, precA, &precC, &alg);
+  int32_t umax; hyacinPrecision_t precA = __precA<T>(), precC; hyacinAlgorithm_t alg = HYACIN_ALG_AUTO; char use_evd;
+  hyacinXsyherk_autoTune(epi, u_extra, &umax, precA, &precC);
   if (algo == 'C') alg = HYACIN_ALG_CRT; else if (algo == 'L') alg = HYACIN_ALG_LIMBS;
 
   use_evd = hyacinXGevPcsvd_autoTune(N, K, precC);
@@ -235,8 +235,8 @@ int32_t svd_fit_transform(hyacinHandle_t handle, char algo, double epi,
 template <class T, class R>
 int32_t svd_fit_transform_1dr(hyacinHandle_t handle, ncclComm_t comm, char algo, double epi,
   int32_t M, int32_t gM, int32_t N, int32_t K, T* A, int32_t lda, R* S, T* V, int32_t ldv, int32_t Mv, int32_t Nv = 0, int32_t lcol_offset = 0) {
-  int32_t umax; hyacinPrecision_t precA = __precA<T>(), precC; hyacinAlgorithm_t alg; char use_evd;
-  hyacinXsyherk_autoTune(epi, u_extra, &umax, precA, &precC, &alg);
+  int32_t umax; hyacinPrecision_t precA = __precA<T>(), precC; hyacinAlgorithm_t alg = HYACIN_ALG_AUTO; char use_evd;
+  hyacinXsyherk_autoTune(epi, u_extra, &umax, precA, &precC);
   if (algo == 'C') alg = HYACIN_ALG_CRT; else if (algo == 'L') alg = HYACIN_ALG_LIMBS;
 
   use_evd = hyacinXGevPcsvd_autoTune(N, K, precC);

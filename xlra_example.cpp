@@ -28,9 +28,9 @@ double check_answer_lra(int32_t rank, int32_t M, int32_t N, const T* A, int32_t 
 
 template <class T>
 int32_t id_hyac(hyacinHandle_t handle, double epi, int32_t M, int32_t N, int32_t K, const T* A, int32_t lda, int32_t* jpiv, T* R, int32_t ldr, char algo) {
-  int32_t umax; hyacinPrecision_t precA = __precA<T>(), precC; hyacinAlgorithm_t alg;
+  int32_t umax; hyacinPrecision_t precA = __precA<T>(), precC; hyacinAlgorithm_t alg = HYACIN_ALG_AUTO;
 
-  hyacinXsyherk_autoTune(epi, u_extra, &umax, precA, &precC, &alg);
+  hyacinXsyherk_autoTune(epi, u_extra, &umax, precA, &precC);
   if (algo == 'C') alg = HYACIN_ALG_CRT; else if (algo == 'L') alg = HYACIN_ALG_LIMBS;
 
   int32_t c_bytes = hyacinXelem('A', &precC);
