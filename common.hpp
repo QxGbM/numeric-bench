@@ -15,9 +15,10 @@
 
 using blas_int = int; // LP64 for blas
 const int32_t oversampling = 10; // increase for better LRA accuracy
-const int32_t u_extra = 6; // increase for better Quantization accuracy
+const int32_t u_corr = 6; // increase for better Quantization accuracy
+const int32_t g_corr = -5; // increase for higher Fp-Gram accuracy
 const int32_t time_kernel = 1;
-const char use_evd = 'Y';
+const char use_evd = 'A';
 double kernel_time = 0., comm_time = 0.;
 
 template <class T, class S> inline T conv(S x) {
@@ -208,61 +209,40 @@ template <> inline hyacinPrecision_t __precA<__half2>() { return HYACIN_F16_COMP
 
 template <class T, class R>
 int32_t svd_fit_transform(hyacinHandle_t handle, char algo, double epi,
-  int32_t M, int32_t N, int32_t K, T* A, int32_t lda, R* S, T* V, int32_t ldv, int32_t Mv, int32_t Nv = 0, int32_t lcol_offset = 0) {
-  int32_t umax; hyacinPrecision_t precA = __precA<T>(), precC; hyacinAlgorithm_t alg = HYACIN_ALG_AUTO;
-  hyacinXsyherk_autoTune(epi, u_extra, &umax, precA, &precC);
-  if (algo == 'C') alg = HYACIN_ALG_CRT; else if (algo == 'L') alg = HYACIN_ALG_LIMBS;
-
-  int32_t c_bytes = hyacinXelem('A', &precC);
-
-  void* gram = nullptr; T* X = nullptr;
-  cudaMalloc(&gram, int64_t(N) * int64_t(N) * int64_t(c_bytes));
-  cudaMalloc(&X, int64_t(N) * int64_t(K) * int64_t(sizeof(T)));
-
-  hyacinXsyherk(handle, M, N, umax, precA, A, lda, precC, gram, N, alg);
-  int32_t rank = 0;
-  rank = hyacinXGevPcsvd(handle, use_evd, 'U', epi, N, K, oversampling, precA, X, N, S, precC, gram, N);
-  hyacinXtransform(handle, M, N, rank, precA, A, lda, X, N);
-  hyacinXtransform(handle, Mv, Nv, rank, precA, V, ldv, &X[lcol_offset], N);
-
-  hyacinSync_TimerSegments(handle, &kernel_time, &comm_time);
-  cudaFree(gram); cudaFree(X);
-  return rank;
-}
-
-#ifndef NO_NCCL
-
-template <class T, class R>
-int32_t svd_fit_transform_1dr(hyacinHandle_t handle, ncclComm_t comm, char algo, double epi,
   int32_t M, int32_t gM, int32_t N, int32_t K, T* A, int32_t lda, R* S, T* V, int32_t ldv, int32_t Mv, int32_t Nv = 0, int32_t lcol_offset = 0) {
-  int32_t umax; hyacinPrecision_t precA = __precA<T>(), precC; hyacinAlgorithm_t alg = HYACIN_ALG_AUTO;
-  hyacinXsyherk_autoTune(epi, u_extra, &umax, precA, &precC);
-  if (algo == 'C') alg = HYACIN_ALG_CRT; else if (algo == 'L') alg = HYACIN_ALG_LIMBS;
+  hyacinPrecision_t precA = __precA<T>(); hyacinAlgorithm_t alg = algo == 'C' ? HYACIN_ALG_CRT : algo == 'L' ? HYACIN_ALG_LIMBS : HYACIN_ALG_AUTO;
+  int32_t* vexp = nullptr; cudaMallocAsync((void**)&vexp, int64_t(N) * sizeof(int32_t), handle.cudaStream);
+  int32_t dimC[2], u = hyacinXquantizeScale(handle, epi, u_corr, gM, M, N, precA, A, lda, vexp, dimC);
 
-  int32_t c_bytes = hyacinXelem('A', &precC);
+  int64_t strideC = (int64_t(N) * int64_t(N + 1)) / int64_t(2);
+  uint64_t* C = nullptr; cudaMallocAsync((void**)&C, int64_t(dimC[0]) * int64_t(dimC[1]) * int64_t(strideC) * sizeof(uint64_t), handle.cudaStream);
+  hyacinXherk(handle, M, N, precA, A, lda, u, vexp, 0, dimC[1], C, alg);
+  hyacinXAllReduce1Drow(handle, dimC[0], dimC[1], strideC, C);
 
-  void* gram = nullptr; T* X = nullptr;
-  cudaMalloc(&gram, int64_t(N) * int64_t(N) * int64_t(c_bytes));
-  cudaMalloc(&X, int64_t(N) * int64_t(K) * int64_t(sizeof(T)));
+  int32_t gElemBytes; hyacinPrecision_t Gtype = hyacinXGautoType(g_corr, gM, precA, u, &gElemBytes);
+  void* G = nullptr; cudaMallocAsync((void**)&G, int64_t(N) * int64_t(N) * int64_t(gElemBytes), handle.cudaStream);
+  hyacinXdequantize(handle, N, dimC[1], C, vexp, Gtype, G, N);
+  cudaFreeAsync(vexp, handle.cudaStream); cudaFreeAsync(C, handle.cudaStream);
 
-  hyacinXsyherk1Drow(handle, M, gM, N, umax, precA, A, lda, precC, gram, N, alg, comm);
-  int32_t rank = hyacinXGevPcsvd(handle, use_evd, 'U', epi, N, K, oversampling, precA, X, N, S, precC, gram, N);
+  T* X = nullptr; cudaMallocAsync((void**)&X, int64_t(N) * int64_t(K) * sizeof(T), handle.cudaStream);
+  int32_t rank = hyacinXGevPcsvd(handle, use_evd, 'A', epi, N, K, oversampling, precA, X, N, S, Gtype, G, N);
+  cudaFreeAsync(G, handle.cudaStream);
   hyacinXtransform(handle, M, N, rank, precA, A, lda, X, N);
   hyacinXtransform(handle, Mv, Nv, rank, precA, V, ldv, &X[lcol_offset], N);
+  cudaFreeAsync(X, handle.cudaStream);
 
   hyacinSync_TimerSegments(handle, &kernel_time, &comm_time);
-  cudaFree(gram); cudaFree(X);
   return rank;
 }
 
 template <class T>
-std::pair<int32_t, int32_t> allgatherv_1dc(hyacinHandle_t handle, ncclComm_t comm, int32_t M, int32_t N, T* A, int32_t lda) {
-  hyacinPrecision_t precA = __precA<T>();
-  int32_t v_offset = hyacinXAllGatherV1Dcol(handle, M, &N, precA, A, lda, comm);
+std::pair<int32_t, int32_t> allgatherv_1dc(hyacinHandle_t handle, int32_t M, int32_t N, T* A, int32_t lda) {
+  int32_t v_offset = hyacinXAllGatherV1Dcol(handle, M, &N, int32_t(sizeof(T)), A, lda);
   hyacinSync_TimerSegments(handle, &kernel_time, &comm_time);
   return std::make_pair(N, v_offset);
 }
 
+#ifndef NO_NCCL
 #ifndef BOOTSTRAP_NO_POSIX
 #include <unistd.h>
 

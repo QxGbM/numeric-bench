@@ -25,8 +25,8 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t N, in
   hyacinHandle_t handle;
   ncclComm_t comm;
 
-  hyacinCreate(&handle, 1);
   ncclCommInitRank(&comm, tile_m, id, grid_row);
+  hyacinCreate2D(&handle, comm, nullptr, 1);
 
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
@@ -37,7 +37,7 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t N, in
   if (time_kernel) {
     cudaMalloc((void**)(&d_barrier), sizeof(double2));
     cudaMemset(d_barrier, 0xDEADBEEF, sizeof(double2));
-    int32_t rank = svd_fit_transform_1dr(handle, comm, algo, epi, lM, gM, N, K, d_A, lM, d_S, d_V, N, N);
+    int32_t rank = svd_fit_transform(handle, algo, epi, lM, gM, N, K, d_A, lM, d_S, d_V, N, N);
 
     std::vector<T> matU(lM * K), matV(K * N);
     cudaMemcpy(matU.data(), d_A, lM * K * sizeof(T), cudaMemcpyDeviceToHost);
@@ -64,7 +64,7 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t N, in
   }
   cudaEventRecord(start, handle.cudaStream);
 
-  int32_t rank = svd_fit_transform_1dr(handle, comm, algo, epi, lM, gM, N, K, d_A, lM, d_S, d_V, N, N);
+  int32_t rank = svd_fit_transform(handle, algo, epi, lM, gM, N, K, d_A, lM, d_S, d_V, N, N);
 
   if (time_kernel)
     ncclAllReduce(d_barrier, d_barrier, 1, ncclInt32, ncclMin, comm, handle.cudaStream);

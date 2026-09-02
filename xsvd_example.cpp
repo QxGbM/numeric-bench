@@ -28,7 +28,7 @@ template <class T, class R> inline void run(char prec, int64_t M, int64_t N, int
 
   double err = std::numeric_limits<double>::quiet_NaN();
   if (time_kernel) {
-    int32_t rank = svd_fit_transform(handle, algo, epi, M, N, K, d_A, M, d_S, d_V, N, N);
+    int32_t rank = svd_fit_transform(handle, algo, epi, M, M, N, K, d_A, M, d_S, d_V, N, N);
 
     std::vector<T> matU(M * K), matV(K * N);
     cudaMemcpy(matU.data(), d_A, M * K * sizeof(T), cudaMemcpyDeviceToHost);
@@ -43,7 +43,7 @@ template <class T, class R> inline void run(char prec, int64_t M, int64_t N, int
   }
 
   cudaEventRecord(start, handle.cudaStream);
-  int32_t rank = svd_fit_transform(handle, algo, epi, M, N, K, d_A, M, d_S, d_V, N, N);
+  int32_t rank = svd_fit_transform(handle, algo, epi, M, M, N, K, d_A, M, d_S, d_V, N, N);
   cudaEventRecord(stop, handle.cudaStream);
 
   cudaStreamSynchronize(handle.cudaStream);

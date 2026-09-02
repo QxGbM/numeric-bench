@@ -29,10 +29,10 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t gN, i
   hyacinHandle_t handle;
   ncclComm_t comm, comm_row, comm_col;
 
-  hyacinCreate(&handle, 1);
   ncclCommInitRank(&comm, tile_m * tile_n, id, grid_row + grid_col * tile_m);
   ncclCommSplit(comm, grid_row, grid_col, &comm_row, nullptr);
   ncclCommSplit(comm, grid_col, grid_row, &comm_col, nullptr);
+  hyacinCreate2D(&handle, comm_col, comm_row, 1);
 
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
@@ -44,9 +44,9 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t gN, i
   if (time_kernel) {
     cudaMalloc((void**)(&d_barrier), sizeof(double2));
     cudaMemset(d_barrier, 0xDEADBEEF, sizeof(double2));
-    r1 = svd_fit_transform_1dr(handle, comm_col, algo, epi, lM, gM, lN, K, d_A, lM, d_S, d_V, lN, lN);
-    std::tie(N2, offset) = allgatherv_1dc(handle, comm_row, lM, r1, d_A, lM);
-    r2 = svd_fit_transform_1dr(handle, comm_col, algo, epi, lM, gM, N2, K, d_A, lM, d_S, d_V, lN, lN, r1, offset);
+    r1 = svd_fit_transform(handle, algo, epi, lM, gM, lN, K, d_A, lM, d_S, d_V, lN, lN);
+    std::tie(N2, offset) = allgatherv_1dc(handle, lM, r1, d_A, lM);
+    r2 = svd_fit_transform(handle, algo, epi, lM, gM, N2, K, d_A, lM, d_S, d_V, lN, lN, r1, offset);
 
     std::vector<T> matU(lM * K), matV(K * lN);
     cudaMemcpy(matU.data(), d_A, lM * K * sizeof(T), cudaMemcpyDeviceToHost);
@@ -67,9 +67,9 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t gN, i
   }
   cudaEventRecord(start, handle.cudaStream);
 
-  r1 = svd_fit_transform_1dr(handle, comm_col, algo, epi, lM, gM, lN, K, d_A, lM, d_S, d_V, lN, lN);
-  std::tie(N2, offset) = allgatherv_1dc(handle, comm_row, lM, r1, d_A, lM);
-  r2 = svd_fit_transform_1dr(handle, comm_col, algo, epi, lM, gM, N2, K, d_A, lM, d_S, d_V, lN, lN, r1, offset);
+  r1 = svd_fit_transform(handle, algo, epi, lM, gM, lN, K, d_A, lM, d_S, d_V, lN, lN);
+  std::tie(N2, offset) = allgatherv_1dc(handle, lM, r1, d_A, lM);
+  r2 = svd_fit_transform(handle, algo, epi, lM, gM, N2, K, d_A, lM, d_S, d_V, lN, lN, r1, offset);
 
   if (time_kernel)
     ncclAllReduce(d_barrier, d_barrier, 1, ncclInt32, ncclMin, comm, handle.cudaStream);
