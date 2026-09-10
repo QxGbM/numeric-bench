@@ -28,13 +28,13 @@ double check_answer_lra(int32_t rank, int32_t M, int32_t N, const T* A, int32_t 
 
 template <class T>
 int32_t id_hyac(hyacinHandle_t handle, double epi, int32_t M, int32_t N, int32_t K, const T* A, int32_t lda, int32_t* jpiv, T* R, int32_t ldr, char algo) {
-  hyacinPrecision_t precA = __precA<T>(); hyacinAlgorithm_t alg = algo == 'C' ? HYACIN_ALG_CRT : algo == 'L' ? HYACIN_ALG_LIMBS : HYACIN_ALG_AUTO;
+  hyacinPrecision_t precA = __precA<T>();
   int32_t* vexp = nullptr; cudaMallocAsync((void**)&vexp, int64_t(N) * sizeof(int32_t), handle.cudaStream);
   int32_t dimC[2], u = hyacinXquantizeScale(handle, epi, u_corr, M, M, N, precA, A, lda, vexp, dimC);
 
   int64_t strideC = (int64_t(N) * int64_t(N + 1)) / int64_t(2);
   uint64_t* C = nullptr; cudaMallocAsync((void**)&C, int64_t(dimC[0]) * int64_t(dimC[1]) * int64_t(strideC) * sizeof(uint64_t), handle.cudaStream);
-  hyacinXherk(handle, M, N, precA, A, lda, u, vexp, 0, dimC[1], C, alg);
+  hyacinXherk(handle, algo, M, N, precA, A, lda, u, vexp, 0, dimC[1], C);
 
   int32_t gElemBytes; hyacinPrecision_t Gtype = hyacinXGautoType(g_corr, M, precA, u, &gElemBytes);
   void* G = nullptr; cudaMallocAsync((void**)&G, int64_t(N) * int64_t(N) * int64_t(gElemBytes), handle.cudaStream);

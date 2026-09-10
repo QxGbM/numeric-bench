@@ -210,13 +210,13 @@ template <> inline hyacinPrecision_t __precA<__half2>() { return HYACIN_F16_COMP
 template <class T, class R>
 int32_t svd_fit_transform(hyacinHandle_t handle, char algo, double epi,
   int32_t M, int32_t gM, int32_t N, int32_t K, T* A, int32_t lda, R* S, T* V, int32_t ldv, int32_t Mv, int32_t Nv = 0, int32_t lcol_offset = 0) {
-  hyacinPrecision_t precA = __precA<T>(); hyacinAlgorithm_t alg = algo == 'C' ? HYACIN_ALG_CRT : algo == 'L' ? HYACIN_ALG_LIMBS : HYACIN_ALG_AUTO;
+  hyacinPrecision_t precA = __precA<T>();
   int32_t* vexp = nullptr; cudaMallocAsync((void**)&vexp, int64_t(N) * sizeof(int32_t), handle.cudaStream);
   int32_t dimC[2], u = hyacinXquantizeScale(handle, epi, u_corr, gM, M, N, precA, A, lda, vexp, dimC);
 
   int64_t strideC = (int64_t(N) * int64_t(N + 1)) / int64_t(2);
   uint64_t* C = nullptr; cudaMallocAsync((void**)&C, int64_t(dimC[0]) * int64_t(dimC[1]) * int64_t(strideC) * sizeof(uint64_t), handle.cudaStream);
-  hyacinXherk(handle, M, N, precA, A, lda, u, vexp, 0, dimC[1], C, alg);
+  hyacinXherk(handle, algo, M, N, precA, A, lda, u, vexp, 0, dimC[1], C);
   hyacinXAllReduce1Drow(handle, dimC[0], dimC[1], strideC, C);
 
   int32_t gElemBytes; hyacinPrecision_t Gtype = hyacinXGautoType(g_corr, gM, precA, u, &gElemBytes);
