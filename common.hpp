@@ -107,7 +107,7 @@ template <class T> struct matrix_generator {
     int64_t nbodies = M + N;
     const double phi = 2.39996322972865332223;  // golden angle in radians
     for (int64_t i = 0; i < nbodies; ++i) {
-      double di = double(i), dn = double(nbodies - uint64_t(1) ?: uint64_t(1));
+      double di = double(i), dn = double((nbodies - int64_t(1)) ?: int64_t(1));
       double x = 1. - 2. * (di / dn);  // x goes from 1. to -1.
       double radius = std::sqrt(1. - x * x);  // radius at x
       bodies[i * 3] = x;
@@ -211,15 +211,15 @@ template <class T, class R>
 int32_t svd_fit_transform(hyacinHandle_t handle, char algo, double epi,
   int32_t M, int32_t gM, int32_t N, int32_t K, T* A, int32_t lda, R* S, T* V, int32_t ldv, int32_t Mv, int32_t Nv = 0, int32_t lcol_offset = 0) {
   hyacinPrecision_t precA = __precA<T>();
-  int32_t* vexp = nullptr; cudaMallocAsync((void**)&vexp, int64_t(N) * sizeof(int32_t), handle.cudaStream);
-  int32_t dimC[2], u = hyacinXquantizeScale(handle, epi, u_corr, gM, M, N, precA, A, lda, vexp, dimC);
+  int32_t* vexp = nullptr; cudaMallocAsync((void**)&vexp, int64_t(N) * sizeof(int64_t), handle.cudaStream);
+  int32_t dimC[4]; hyacinXquantizeScale(handle, epi, u_corr, gM, M, N, precA, A, lda, 0, vexp, dimC);
 
   int64_t strideC = (int64_t(N) * int64_t(N + 1)) / int64_t(2);
   uint64_t* C = nullptr; cudaMallocAsync((void**)&C, int64_t(dimC[0]) * int64_t(dimC[1]) * int64_t(strideC) * sizeof(uint64_t), handle.cudaStream);
-  hyacinXherk(handle, algo, M, N, precA, A, lda, u, vexp, 0, dimC[1], C);
+  hyacinXherk(handle, algo, M, N, precA, A, lda, dimC[2], vexp, 0, dimC[1], C);
   hyacinXAllReduce1Drow(handle, dimC[0], dimC[1], strideC, C);
 
-  int32_t gElemBytes; hyacinPrecision_t Gtype = hyacinXGautoType(g_corr, gM, precA, u, &gElemBytes);
+  int32_t gElemBytes; hyacinPrecision_t Gtype = hyacinXGautoType(g_corr, gM, precA, dimC[2], &gElemBytes);
   void* G = nullptr; cudaMallocAsync((void**)&G, int64_t(N) * int64_t(N) * int64_t(gElemBytes), handle.cudaStream);
   hyacinXdequantize(handle, N, dimC[1], C, vexp, Gtype, G, N);
   cudaFreeAsync(vexp, handle.cudaStream); cudaFreeAsync(C, handle.cudaStream);
