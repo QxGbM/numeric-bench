@@ -237,13 +237,6 @@ int32_t svd_fit_transform(hyacinHandle_t handle, char algo, double epi,
   return rank;
 }
 
-template <class T>
-std::pair<int32_t, int32_t> allgatherv_1dc(hyacinHandle_t handle, int32_t M, int32_t N, T* A, int32_t lda) {
-  int32_t v_offset = hyacinXAllGatherV1Dcol(handle, M, &N, int32_t(sizeof(T)), A, lda);
-  hyacinSync_TimerSegments(handle, &kernel_time, &comm_time);
-  return std::make_pair(N, v_offset);
-}
-
 #ifndef NO_NCCL
 #ifndef BOOTSTRAP_NO_POSIX
 #include <unistd.h>

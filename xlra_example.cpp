@@ -3,6 +3,23 @@
 #include <iostream>
 #include <chrono>
 
+template <class T> void make_2D_oscillatory(double w, int32_t sep, int32_t M, int32_t N, T* A, int32_t lda) {
+  constexpr int32_t height = 128;
+  auto translate_2d = [](int64_t i) { int64_t x = i / height, y = i - height * x; return std::complex<double>(x, y); };
+  sep = height * sep + ((M + height - 1) & (~(height - 1)));
+
+  for (int32_t j = 0; j < N; ++j) {
+    auto vj = translate_2d(j + sep);
+    for (int32_t i = 0; i < M; ++i) {
+      auto vi = translate_2d(i);
+      double d = std::abs(vi - vj);
+      int64_t k = int64_t(i) + int64_t(j) * int64_t(lda);
+      if constexpr(std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, __half2>)
+      { A[k] = conv<T>(std::complex<double>(std::cos(w * d) / d, std::sin(w * d) / d)); } else { A[k] = T(std::cos(w * d) / d); }
+    }
+  }
+}
+
 template <class T>
 double check_answer_lra(int32_t rank, int32_t M, int32_t N, const T* A, int32_t lda, const int32_t* jpiv, const T* R, int32_t ldr) {
   if (rank <= 0 || M <= 0 || N <= 0) return std::numeric_limits<double>::quiet_NaN();
@@ -36,16 +53,16 @@ int32_t id_hyac(hyacinHandle_t handle, double epi, int32_t M, int32_t N, int32_t
 
   int64_t strideC = (int64_t(N) * int64_t(N + 1)) / int64_t(2);
   uint64_t* C = nullptr; cudaMallocAsync((void**)&C, int64_t(cPanels) * int64_t(lPanels) * int64_t(strideC) * sizeof(uint64_t), handle.cudaStream);
-  hyacinXherk(handle, algo, M, N, precA, A, lda, u, vexp, 0, lPanels, C);
+  //hyacinXherk(handle, algo, M, N, precA, A, lda, u, vexp, 0, lPanels, C);
 
-  /*void* param = nullptr; uint64_t bytesBatch = 0; hyacinXherkBatchCreate(&param, algo, 65536, N, precA, u, u_floor, 8, &bytesBatch);
+  void* param = nullptr; uint64_t bytesBatch = 0; hyacinXherkBatchCreate(&param, algo, 65536, N, precA, u, u_floor, &bytesBatch);
   int8_t* batch = nullptr; cudaMallocAsync((void**)&batch, bytesBatch, handle.cudaStream);
 
   int32_t beta = 0;
-  for (int32_t i = 0; i < M; i += 65536)
-  { int32_t rows = std::min(M - i, 65536); hyacinXherkBatchProcessA(handle, algo, rows, N, precA, &A[i], lda, HYACIN_QUERY_U, vexp, &beta, lPanels, C, param, batch); }
+  for (int32_t i = 0; i < M; i += 2048)
+  { int32_t rows = std::min(M - i, 2048); hyacinXherkBatchProcessA(handle, algo, rows, N, precA, &A[i], lda, HYACIN_QUERY_U, vexp, &beta, lPanels, C, param, batch); }
   hyacinXherkBatchFlush(handle, N, precA, vexp, beta, lPanels, C, param, batch);
-  hyacinXherkBatchDestroy(param); cudaFreeAsync(batch, handle.cudaStream);*/
+  hyacinXherkBatchDestroy(param); cudaFreeAsync(batch, handle.cudaStream);
 
   int32_t gElemBytes; hyacinPrecision_t Gtype = hyacinXGautoType(g_corr, M, precA, u, &gElemBytes);
   void* G = nullptr; cudaMallocAsync((void**)&G, int64_t(N) * int64_t(N) * int64_t(gElemBytes), handle.cudaStream);
@@ -65,6 +82,7 @@ template <class T> inline void run(char prec, int64_t M, int64_t N, double epi, 
   std::vector<T> matA(M * N);
   std::vector<int32_t> ipiv(N);
   matrix_generator<T>(M, N).generate_block(1., 512, 512, &matA[0], M);
+  //make_2D_oscillatory(1., 0, M, N, &matA[0], M);
 
   T* d_A = nullptr, * d_X = nullptr;
   cudaMalloc((void**)(&d_A), M * N * sizeof(T));
