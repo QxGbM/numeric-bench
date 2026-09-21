@@ -211,15 +211,15 @@ template <class T, class R>
 int32_t svd_fit_transform(hyacinHandle_t handle, char algo, double epi,
   int32_t M, int32_t gM, int32_t N, int32_t K, T* A, int32_t lda, R* S, T* V, int32_t ldv, int32_t Mv, int32_t Nv = 0, int32_t lcol_offset = 0) {
   hyacinPrecision_t precA = __precA<T>();
-  int32_t* vexp = nullptr, cPanels, lPanels, u_floor;
-  cudaMallocAsync((void**)&vexp, int64_t(N) * sizeof(int64_t), handle.cudaStream);
-  hyacinXquantizeScale(handle, M, N, precA, A, lda, 0, vexp);
-  int32_t u = hyacinXquantizeScaleFinalize(handle, epi, u_corr, gM, N, precA, vexp, &cPanels, &lPanels, &u_floor);
+  int32_t* vexp = nullptr, cPanels, lPanels;
+  cudaMallocAsync((void**)&vexp, int64_t(N) * sizeof(int32_t), handle.cudaStream);
+  int32_t u = hyacinXquantizeScale(handle, epi, u_corr, M, gM, N, precA, A, lda, 0, vexp, &cPanels, &lPanels);
+  hyacinAllReduceVExp(handle, int64_t(N), vexp);
 
   int64_t strideC = (int64_t(N) * int64_t(N + 1)) / int64_t(2);
   uint64_t* C = nullptr; cudaMallocAsync((void**)&C, int64_t(cPanels) * int64_t(lPanels) * int64_t(strideC) * sizeof(uint64_t), handle.cudaStream);
   hyacinXherk(handle, algo, M, N, precA, A, lda, u, vexp, 0, lPanels, C);
-  hyacinXAllReduce1Drow(handle, cPanels, lPanels, strideC, C);
+  hyacinAllReduce1Drow(handle, cPanels, lPanels, strideC, C);
 
   int32_t gElemBytes; hyacinPrecision_t Gtype = hyacinXGautoType(g_corr, gM, precA, u, &gElemBytes);
   void* G = nullptr; cudaMallocAsync((void**)&G, int64_t(N) * int64_t(N) * int64_t(gElemBytes), handle.cudaStream);

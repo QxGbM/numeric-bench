@@ -46,16 +46,15 @@ double check_answer_lra(int32_t rank, int32_t M, int32_t N, const T* A, int32_t 
 template <class T>
 int32_t id_hyac(hyacinHandle_t handle, double epi, int32_t M, int32_t N, int32_t K, const T* A, int32_t lda, int32_t* jpiv, T* R, int32_t ldr, char algo) {
   hyacinPrecision_t precA = __precA<T>();
-  int32_t* vexp = nullptr, cPanels, lPanels, u_floor;
-  cudaMallocAsync((void**)&vexp, int64_t(N) * sizeof(int64_t), handle.cudaStream);
-  hyacinXquantizeScale(handle, M, N, precA, A, lda, 0, vexp);
-  int32_t u = hyacinXquantizeScaleFinalize(handle, epi, u_corr, M, N, precA, vexp, &cPanels, &lPanels, &u_floor);
+  int32_t* vexp = nullptr, cPanels, lPanels;
+  cudaMallocAsync((void**)&vexp, int64_t(N) * sizeof(int32_t), handle.cudaStream);
+  int32_t u = hyacinXquantizeScale(handle, epi, u_corr, M, M, N, precA, A, lda, 0, vexp, &cPanels, &lPanels);
 
   int64_t strideC = (int64_t(N) * int64_t(N + 1)) / int64_t(2);
   uint64_t* C = nullptr; cudaMallocAsync((void**)&C, int64_t(cPanels) * int64_t(lPanels) * int64_t(strideC) * sizeof(uint64_t), handle.cudaStream);
   //hyacinXherk(handle, algo, M, N, precA, A, lda, u, vexp, 0, lPanels, C);
 
-  void* param = nullptr; uint64_t bytesBatch = 0; hyacinXherkBatchCreate(&param, algo, 65536, N, precA, u, u_floor, &bytesBatch);
+  void* param = nullptr; uint64_t bytesBatch = 0; hyacinXherkBatchCreate(&param, algo, epi, u_corr, 65536, N, precA, &bytesBatch);
   int8_t* batch = nullptr; cudaMallocAsync((void**)&batch, bytesBatch, handle.cudaStream);
 
   int32_t beta = 0;
