@@ -19,8 +19,9 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t gN, i
   /* Timed region start */
   auto host_start = std::chrono::high_resolution_clock::now();
 
-  T* d_A = nullptr, *d_V = nullptr; R* d_S = nullptr;
-  cudaMalloc((void**)(&d_A), lM * std::max(gK, lN) * sizeof(T));
+  T* d_A = nullptr, *d_U = nullptr, *d_V = nullptr; R* d_S = nullptr;
+  cudaMalloc((void**)(&d_A), lM * lN * sizeof(T));
+  cudaMalloc((void**)(&d_U), lM * gK * sizeof(T));
   cudaMalloc((void**)(&d_V), K * lN * sizeof(T));
   cudaMalloc((void**)(&d_S), K * sizeof(R));
   cudaMemcpy(d_A, matA.data(), lM * lN * sizeof(T), cudaMemcpyHostToDevice);
@@ -39,13 +40,12 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t gN, i
   if (1 < kernel_runs) {
     cudaMalloc((void**)(&d_barrier), sizeof(double2));
     cudaMemset(d_barrier, 0xDEADBEEF, sizeof(double2));
-    N2 = r1 = svd_fit_transform(handle, algo, epi, lM, gM, lN, K, d_A, lM, d_S, d_V, lN, lN);
-    offset = hyacinXAllGatherV1Dcol(handle, lM, &N2, int32_t(sizeof(T)), d_A, lM);
-    hyacinSync_TimerSegments(handle, &kernel_time, &comm_time);
-    r2 = svd_fit_transform(handle, algo, epi, lM, gM, N2, K, d_A, lM, d_S, d_V, lN, lN, r1, offset);
+    N2 = r1 = svd_fit_transform(handle, algo, epi, lM, gM, lN, K, d_A, lM, d_U, lM, d_S, d_V, lN, lN);
+    offset = hyacinXAllGatherV1Dcol(handle, lM, &N2, int32_t(sizeof(T)), d_U, lM);
+    r2 = svd_fit_transform(handle, algo, epi, lM, gM, N2, K, d_U, lM, d_U, lM, d_S, d_V, lN, lN, r1, offset);
 
     std::vector<T> matU(lM * K), matV(K * lN);
-    cudaMemcpy(matU.data(), d_A, lM * K * sizeof(T), cudaMemcpyDeviceToHost);
+    cudaMemcpy(matU.data(), d_U, lM * K * sizeof(T), cudaMemcpyDeviceToHost);
     cudaMemcpy(matV.data(), d_V, K * lN * sizeof(T), cudaMemcpyDeviceToHost);
 
     double ret[2]{ check_answer_svd(lM, lN, r2, &matU[0], lM, &matV[0], lN, &matA[0], lM), fnorm(lM, lN, &matA[0], lM) };
@@ -56,17 +56,15 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t gN, i
     cudaMemset(d_barrier, 0xDEADBEEF, sizeof(double2));
     err = std::sqrt(ret[0] / ret[1]);
 
-    cudaMemcpy(d_A, matA.data(), lM * lN * sizeof(T), cudaMemcpyHostToDevice);
     ncclAllReduce(d_barrier, d_barrier, 1, ncclInt32, ncclMin, comm, handle.cudaStream);
     cudaStreamSynchronize(handle.cudaStream);
     kernel_time = comm_time = 0.;
   }
 
   for (int32_t i = 0; i < kernel_runs; ++i) {
-    N2 = r1 = svd_fit_transform(handle, algo, epi, lM, gM, lN, K, d_A, lM, d_S, d_V, lN, lN);
-    offset = hyacinXAllGatherV1Dcol(handle, lM, &N2, int32_t(sizeof(T)), d_A, lM);
-    hyacinSync_TimerSegments(handle, &kernel_time, &comm_time);
-    r2 = svd_fit_transform(handle, algo, epi, lM, gM, N2, K, d_A, lM, d_S, d_V, lN, lN, r1, offset);
+    N2 = r1 = svd_fit_transform(handle, algo, epi, lM, gM, lN, K, d_A, lM, d_U, lM, d_S, d_V, lN, lN);
+    offset = hyacinXAllGatherV1Dcol(handle, lM, &N2, int32_t(sizeof(T)), d_U, lM);
+    r2 = svd_fit_transform(handle, algo, epi, lM, gM, N2, K, d_U, lM, d_U, lM, d_S, d_V, lN, lN, r1, offset);
   }
 
   if (1 < kernel_runs) {
@@ -79,7 +77,7 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t gN, i
   ncclCommDestroy(comm_col);
   std::vector<R> vecS(K);
   cudaMemcpy(vecS.data(), d_S, K * sizeof(R), cudaMemcpyDeviceToHost);
-  cudaFree(d_S);
+  cudaFree(d_A); cudaFree(d_U); cudaFree(d_S); cudaFree(d_V);
 
   /* Timed region end */
   std::chrono::duration<double, std::milli> host_wtime = std::chrono::high_resolution_clock::now() - host_start;

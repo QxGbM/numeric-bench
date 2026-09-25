@@ -95,16 +95,18 @@ template <class T> inline void run(char prec, int64_t M, int64_t N, double epi, 
   hyacinCreate(&handle, 1);
 
   int32_t rank = 0; double err = std::numeric_limits<double>::quiet_NaN();
-  rank = id_hyac(handle, epi, M, N, N, d_A, M, ipiv.data(), d_X, N, algo);
-  cudaStreamSynchronize(handle.cudaStream);
+  if (1 < kernel_runs) {
+    rank = id_hyac(handle, epi, M, N, N, d_A, M, ipiv.data(), d_X, N, algo);
+    cudaStreamSynchronize(handle.cudaStream);
 
-  std::vector<T> matX(N * N);
-  cudaMemcpy(matX.data(), d_X, N * N * sizeof(T), cudaMemcpyDeviceToHost);
-  err = std::sqrt(check_answer_lra(rank, M, N, matA.data(), M, ipiv.data(), matX.data(), N) / fnorm(M, N, &matA[0], M));
+    std::vector<T> matX(N * N);
+    cudaMemcpy(matX.data(), d_X, N * N * sizeof(T), cudaMemcpyDeviceToHost);
+    err = std::sqrt(check_answer_lra(rank, M, N, matA.data(), M, ipiv.data(), matX.data(), N) / fnorm(M, N, &matA[0], M));
 
-  std::fill(ipiv.begin(), ipiv.end(), 0);
-  cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);
-  kernel_time = comm_time = 0.;
+    std::fill(ipiv.begin(), ipiv.end(), 0);
+    cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);
+    kernel_time = comm_time = 0.;
+  }
 
   for (int32_t i = 0; i < kernel_runs; ++i)
     rank = id_hyac(handle, epi, M, N, N, d_A, M, ipiv.data(), d_X, N, algo);

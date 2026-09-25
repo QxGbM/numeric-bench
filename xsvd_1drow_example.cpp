@@ -16,8 +16,9 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t N, in
   /* Timed region start */
   auto host_start = std::chrono::high_resolution_clock::now();
 
-  T* d_A = nullptr, *d_V = nullptr; R* d_S = nullptr;
+  T* d_A = nullptr, *d_U = nullptr, *d_V = nullptr; R* d_S = nullptr;
   cudaMalloc((void**)(&d_A), lM * N * sizeof(T));
+  cudaMalloc((void**)(&d_U), lM * K * sizeof(T));
   cudaMalloc((void**)(&d_V), K * N * sizeof(T));
   cudaMalloc((void**)(&d_S), K * sizeof(R));
   cudaMemcpy(d_A, matA.data(), lM * N * sizeof(T), cudaMemcpyHostToDevice);
@@ -33,10 +34,10 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t N, in
   if (1 < kernel_runs) {
     cudaMalloc((void**)(&d_barrier), sizeof(double2));
     cudaMemset(d_barrier, 0xDEADBEEF, sizeof(double2));
-    rank = svd_fit_transform(handle, algo, epi, lM, gM, N, K, d_A, lM, d_S, d_V, N, N);
+    rank = svd_fit_transform(handle, algo, epi, lM, gM, N, K, d_A, lM, d_U, lM, d_S, d_V, N, N);
 
     std::vector<T> matU(lM * K), matV(K * N);
-    cudaMemcpy(matU.data(), d_A, lM * K * sizeof(T), cudaMemcpyDeviceToHost);
+    cudaMemcpy(matU.data(), d_U, lM * K * sizeof(T), cudaMemcpyDeviceToHost);
     cudaMemcpy(matV.data(), d_V, K * N * sizeof(T), cudaMemcpyDeviceToHost);
 
     double ret[2]{ check_answer_svd(lM, N, rank, &matU[0], lM, &matV[0], N, &matA[0], lM), fnorm(lM, N, &matA[0], lM) };
@@ -47,14 +48,13 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t N, in
     cudaMemset(d_barrier, 0xDEADBEEF, sizeof(double2));
     err = std::sqrt(ret[0] / ret[1]);
 
-    cudaMemcpy(d_A, matA.data(), lM * N * sizeof(T), cudaMemcpyHostToDevice);
     ncclAllReduce(d_barrier, d_barrier, 1, ncclInt32, ncclMin, comm, handle.cudaStream);
     cudaStreamSynchronize(handle.cudaStream);
     kernel_time = comm_time = 0.;
   }
 
   for (int32_t i = 0; i < kernel_runs; ++i)
-    rank = svd_fit_transform(handle, algo, epi, lM, gM, N, K, d_A, lM, d_S, d_V, N, N);
+    rank = svd_fit_transform(handle, algo, epi, lM, gM, N, K, d_A, lM, d_U, lM, d_S, d_V, N, N);
 
   if (1 < kernel_runs) {
     ncclAllReduce(d_barrier, d_barrier, 1, ncclInt32, ncclMin, comm, handle.cudaStream);
@@ -64,9 +64,7 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t N, in
   ncclCommDestroy(comm);
   std::vector<R> vecS(K);
   cudaMemcpy(vecS.data(), d_S, K * sizeof(R), cudaMemcpyDeviceToHost);
-  cudaFree(d_A);
-  cudaFree(d_V);
-  cudaFree(d_S);
+  cudaFree(d_A); cudaFree(d_U); cudaFree(d_S); cudaFree(d_V); 
 
   /* Timed region end */
   std::chrono::duration<double, std::milli> host_wtime = std::chrono::high_resolution_clock::now() - host_start;

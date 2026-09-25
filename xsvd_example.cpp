@@ -13,8 +13,9 @@ template <class T, class R> inline void run(char prec, int64_t M, int64_t N, int
   /* Timed region start */
   auto host_start = std::chrono::high_resolution_clock::now();
 
-  T* d_A = nullptr, *d_V = nullptr; R* d_S = nullptr;
+  T* d_A = nullptr, *d_U = nullptr, *d_V = nullptr; R* d_S = nullptr;
   cudaMalloc((void**)(&d_A), M * N * sizeof(T));
+  cudaMalloc((void**)(&d_U), M * K * sizeof(T));
   cudaMalloc((void**)(&d_V), K * N * sizeof(T));
   cudaMalloc((void**)(&d_S), K * sizeof(R));
   cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);
@@ -23,25 +24,27 @@ template <class T, class R> inline void run(char prec, int64_t M, int64_t N, int
   hyacinCreate(&handle, 1);
 
   int32_t rank = 0; double err = std::numeric_limits<double>::quiet_NaN();
-  rank = svd_fit_transform(handle, algo, epi, M, M, N, K, d_A, M, d_S, d_V, N, N);
+  if (1 < kernel_runs) {
+    rank = svd_fit_transform(handle, algo, epi, M, M, N, K, d_A, M, d_U, M, d_S, d_V, N, N);
 
-  std::vector<T> matU(M * K), matV(K * N);
-  cudaMemcpy(matU.data(), d_A, M * K * sizeof(T), cudaMemcpyDeviceToHost);
-  cudaMemcpy(matV.data(), d_V, K * N * sizeof(T), cudaMemcpyDeviceToHost);
+    std::vector<T> matU(M * K), matV(K * N);
+    cudaMemcpy(matU.data(), d_U, M * K * sizeof(T), cudaMemcpyDeviceToHost);
+    cudaMemcpy(matV.data(), d_V, K * N * sizeof(T), cudaMemcpyDeviceToHost);
 
-  if (!out.empty())
-    write_matrix_to_csv(N, rank, &matV[0], N, out);
+    if (!out.empty())
+      write_matrix_to_csv(N, rank, &matV[0], N, out);
 
-  err = std::sqrt(check_answer_svd(M, N, rank, &matU[0], M, &matV[0], N, &matA[0], M) / fnorm(M, N, &matA[0], M));
-  kernel_time = comm_time = 0.;
+    err = std::sqrt(check_answer_svd(M, N, rank, &matU[0], M, &matV[0], N, &matA[0], M) / fnorm(M, N, &matA[0], M));
+    kernel_time = comm_time = 0.;
+  }
 
   for (int32_t i = 0; i < kernel_runs; ++i)
-    rank = svd_fit_transform(handle, algo, epi, M, M, N, K, d_A, M, d_S, d_V, N, N);
+    rank = svd_fit_transform(handle, algo, epi, M, M, N, K, d_A, M, d_U, M, d_S, d_V, N, N);
 
   hyacinDestroy(handle);
   std::vector<R> vecS(K);
   cudaMemcpy(vecS.data(), d_S, K * sizeof(R), cudaMemcpyDeviceToHost);
-  cudaFree(d_S);
+  cudaFree(d_A); cudaFree(d_U); cudaFree(d_S); cudaFree(d_V);
 
   /* Timed region end */
   std::chrono::duration<double, std::milli> host_wtime = std::chrono::high_resolution_clock::now() - host_start;

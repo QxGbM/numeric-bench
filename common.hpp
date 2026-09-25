@@ -209,7 +209,7 @@ template <> inline hyacinPrecision_t __precA<__half2>() { return HYACIN_F16_COMP
 
 template <class T, class R>
 int32_t svd_fit_transform(hyacinHandle_t handle, char algo, double epi,
-  int32_t M, int32_t gM, int32_t N, int32_t K, T* A, int32_t lda, R* S, T* V, int32_t ldv, int32_t Mv, int32_t Nv = 0, int32_t lcol_offset = 0) {
+  int32_t M, int32_t gM, int32_t N, int32_t K, const T* A, int32_t lda, T* U, int32_t ldu, R* S, T* V, int32_t ldv, int32_t Mv, int32_t Nv = 0, int32_t lcol_offset = 0) {
   hyacinPrecision_t precA = __precA<T>();
   int32_t* vexp = nullptr, cPanels, lPanels;
   cudaMallocAsync((void**)&vexp, int64_t(N) * sizeof(int32_t), handle.cudaStream);
@@ -229,8 +229,8 @@ int32_t svd_fit_transform(hyacinHandle_t handle, char algo, double epi,
   T* X = nullptr; cudaMallocAsync((void**)&X, int64_t(N) * int64_t(K) * sizeof(T), handle.cudaStream);
   int32_t rank = hyacinXGevPcsvd(handle, use_evd, 'A', epi, N, K, oversampling, precA, X, N, S, Gtype, G, N);
   cudaFreeAsync(G, handle.cudaStream);
-  hyacinXtransform(handle, M, N, rank, precA, A, lda, X, N);
-  hyacinXtransform(handle, Mv, Nv, rank, precA, V, ldv, &X[lcol_offset], N);
+  hyacinXtransform(handle, M, N, rank, precA, A, lda, U, ldu, X, N);
+  hyacinXtransform(handle, Mv, Nv, rank, precA, V, ldv, V, ldv, &X[lcol_offset], N);
   cudaFreeAsync(X, handle.cudaStream);
 
   hyacinSync_TimerSegments(handle, &kernel_time, &comm_time);
