@@ -17,7 +17,7 @@ using blas_int = int; // LP64 for blas
 const int32_t oversampling = 10; // increase for better LRA accuracy
 const int32_t u_corr = 6; // increase for better Quantization accuracy
 const int32_t g_corr = -5; // increase for higher Fp-Gram accuracy
-const int32_t time_kernel = 1;
+const int32_t kernel_runs = 3;
 const char use_evd = 'A';
 double kernel_time = 0., comm_time = 0.;
 

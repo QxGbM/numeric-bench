@@ -52,16 +52,16 @@ int32_t id_hyac(hyacinHandle_t handle, double epi, int32_t M, int32_t N, int32_t
 
   int64_t strideC = (int64_t(N) * int64_t(N + 1)) / int64_t(2);
   uint64_t* C = nullptr; cudaMallocAsync((void**)&C, int64_t(cPanels) * int64_t(lPanels) * int64_t(strideC) * sizeof(uint64_t), handle.cudaStream);
-  //hyacinXherk(handle, algo, M, N, precA, A, lda, u, vexp, 0, lPanels, C);
+  hyacinXherk(handle, algo, M, N, precA, A, lda, u, vexp, 0, lPanels, C);
 
-  void* param = nullptr; uint64_t bytesBatch = 0; hyacinXherkBatchCreate(&param, algo, epi, u_corr, 65536, N, precA, &bytesBatch);
+  /*void* param = nullptr; uint64_t bytesBatch = 0; hyacinXherkBatchCreate(&param, algo, epi, u_corr, 65536, N, precA, &bytesBatch);
   int8_t* batch = nullptr; cudaMallocAsync((void**)&batch, bytesBatch, handle.cudaStream);
 
   int32_t beta = 0;
   for (int32_t i = 0; i < M; i += 2048)
   { int32_t rows = std::min(M - i, 2048); hyacinXherkBatchProcessA(handle, algo, rows, N, precA, &A[i], lda, HYACIN_QUERY_U, vexp, &beta, lPanels, C, param, batch); }
   hyacinXherkBatchFlush(handle, N, precA, vexp, beta, lPanels, C, param, batch);
-  hyacinXherkBatchDestroy(param); cudaFreeAsync(batch, handle.cudaStream);
+  hyacinXherkBatchDestroy(param); cudaFreeAsync(batch, handle.cudaStream);*/
 
   int32_t gElemBytes; hyacinPrecision_t Gtype = hyacinXGautoType(g_corr, M, precA, u, &gElemBytes);
   void* G = nullptr; cudaMallocAsync((void**)&G, int64_t(N) * int64_t(N) * int64_t(gElemBytes), handle.cudaStream);
@@ -83,57 +83,42 @@ template <class T> inline void run(char prec, int64_t M, int64_t N, double epi, 
   matrix_generator<T>(M, N).generate_block(1., 512, 512, &matA[0], M);
   //make_2D_oscillatory(1., 0, M, N, &matA[0], M);
 
+  /* Timed region start */
+  auto host_start = std::chrono::high_resolution_clock::now();
+
   T* d_A = nullptr, * d_X = nullptr;
   cudaMalloc((void**)(&d_A), M * N * sizeof(T));
   cudaMalloc((void**)(&d_X), N * N * sizeof(T));
   cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);
 
-  /* Timed region start */
-  auto host_start = std::chrono::high_resolution_clock::now();
-
   hyacinHandle_t handle;
   hyacinCreate(&handle, 1);
 
-  cudaEvent_t start, stop;
-  cudaEventCreate(&start);
-  cudaEventCreate(&stop);
-
-  double err = std::numeric_limits<double>::quiet_NaN();
-  if (time_kernel) {
-    int32_t rank = id_hyac(handle, epi, M, N, N, d_A, M, ipiv.data(), d_X, N, algo);
-    cudaStreamSynchronize(handle.cudaStream);
-
-    std::vector<T> matX(N * N);
-    cudaMemcpy(matX.data(), d_X, N * N * sizeof(T), cudaMemcpyDeviceToHost);
-    err = std::sqrt(check_answer_lra(rank, M, N, matA.data(), M, ipiv.data(), matX.data(), N) / fnorm(M, N, &matA[0], M));
-
-    std::fill(ipiv.begin(), ipiv.end(), 0);
-    cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);
-    kernel_time = comm_time = 0.;
-  }
-
-  cudaEventRecord(start, handle.cudaStream);
-  int32_t rank = id_hyac(handle, epi, M, N, N, d_A, M, ipiv.data(), d_X, N, algo);
-  cudaEventRecord(stop, handle.cudaStream);
-
+  int32_t rank = 0; double err = std::numeric_limits<double>::quiet_NaN();
+  rank = id_hyac(handle, epi, M, N, N, d_A, M, ipiv.data(), d_X, N, algo);
   cudaStreamSynchronize(handle.cudaStream);
-  float milliseconds = 0.0f; cudaEventElapsedTime(&milliseconds, start, stop);
 
-  cudaEventDestroy(start);
-  cudaEventDestroy(stop);
+  std::vector<T> matX(N * N);
+  cudaMemcpy(matX.data(), d_X, N * N * sizeof(T), cudaMemcpyDeviceToHost);
+  err = std::sqrt(check_answer_lra(rank, M, N, matA.data(), M, ipiv.data(), matX.data(), N) / fnorm(M, N, &matA[0], M));
+
+  std::fill(ipiv.begin(), ipiv.end(), 0);
+  cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);
+  kernel_time = comm_time = 0.;
+
+  for (int32_t i = 0; i < kernel_runs; ++i)
+    rank = id_hyac(handle, epi, M, N, N, d_A, M, ipiv.data(), d_X, N, algo);
+
   hyacinDestroy(handle);
-
-  /* Timed region end */
-  auto host_end = std::chrono::high_resolution_clock::now();
-
   cudaFree(d_A);
   cudaFree(d_X);
 
-  std::chrono::duration<double, std::milli> host_wtime = host_end - host_start;
-  double duration = time_kernel ? double(milliseconds) : host_wtime.count();
+  /* Timed region end */
+  std::chrono::duration<double, std::milli> host_wtime = std::chrono::high_resolution_clock::now() - host_start;
+  double duration = host_wtime.count();
 
-  printf("%c-LRA [M=%ld,N=%ld] [epi=%.1le] [err=%.12le] [rank=%d] [tts=%lf ms] [kernel=%lf ms] [comm=%lf ms]\n",
-    prec, M, N, epi, err, rank, duration, kernel_time, comm_time);
+  printf("%c-LRA [M=%ld,N=%ld] [epi=%.1le] [err=%.12le] [rank=%d] [host=%lf ms] [kernel=%lf ms] [comm=%lf ms]\n",
+    prec, M, N, epi, err, rank, duration, kernel_time / double(kernel_runs), comm_time / double(kernel_runs));
 }
 
 int32_t main(int32_t argc, char* argv[]) {

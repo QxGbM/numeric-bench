@@ -10,60 +10,45 @@ template <class T, class R> inline void run(char prec, int64_t M, int64_t N, int
   else
     matrix_generator<T>(M, N).generate_block(1., 512, 512, &matA[0], M);
 
+  /* Timed region start */
+  auto host_start = std::chrono::high_resolution_clock::now();
+
   T* d_A = nullptr, *d_V = nullptr; R* d_S = nullptr;
   cudaMalloc((void**)(&d_A), M * N * sizeof(T));
   cudaMalloc((void**)(&d_V), K * N * sizeof(T));
   cudaMalloc((void**)(&d_S), K * sizeof(R));
   cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);
 
-  /* Timed region start */
-  auto host_start = std::chrono::high_resolution_clock::now();
-
   hyacinHandle_t handle;
   hyacinCreate(&handle, 1);
 
-  cudaEvent_t start, stop;
-  cudaEventCreate(&start);
-  cudaEventCreate(&stop);
+  int32_t rank = 0; double err = std::numeric_limits<double>::quiet_NaN();
+  rank = svd_fit_transform(handle, algo, epi, M, M, N, K, d_A, M, d_S, d_V, N, N);
 
-  double err = std::numeric_limits<double>::quiet_NaN();
-  if (time_kernel) {
-    int32_t rank = svd_fit_transform(handle, algo, epi, M, M, N, K, d_A, M, d_S, d_V, N, N);
+  std::vector<T> matU(M * K), matV(K * N);
+  cudaMemcpy(matU.data(), d_A, M * K * sizeof(T), cudaMemcpyDeviceToHost);
+  cudaMemcpy(matV.data(), d_V, K * N * sizeof(T), cudaMemcpyDeviceToHost);
 
-    std::vector<T> matU(M * K), matV(K * N);
-    cudaMemcpy(matU.data(), d_A, M * K * sizeof(T), cudaMemcpyDeviceToHost);
-    cudaMemcpy(matV.data(), d_V, K * N * sizeof(T), cudaMemcpyDeviceToHost);
+  if (!out.empty())
+    write_matrix_to_csv(N, rank, &matV[0], N, out);
 
-    if (!out.empty())
-      write_matrix_to_csv(N, rank, &matV[0], N, out);
+  err = std::sqrt(check_answer_svd(M, N, rank, &matU[0], M, &matV[0], N, &matA[0], M) / fnorm(M, N, &matA[0], M));
+  kernel_time = comm_time = 0.;
 
-    err = std::sqrt(check_answer_svd(M, N, rank, &matU[0], M, &matV[0], N, &matA[0], M) / fnorm(M, N, &matA[0], M));
-    cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);
-    kernel_time = comm_time = 0.;
-  }
+  for (int32_t i = 0; i < kernel_runs; ++i)
+    rank = svd_fit_transform(handle, algo, epi, M, M, N, K, d_A, M, d_S, d_V, N, N);
 
-  cudaEventRecord(start, handle.cudaStream);
-  int32_t rank = svd_fit_transform(handle, algo, epi, M, M, N, K, d_A, M, d_S, d_V, N, N);
-  cudaEventRecord(stop, handle.cudaStream);
-
-  cudaStreamSynchronize(handle.cudaStream);
-  float milliseconds = 0.0f; cudaEventElapsedTime(&milliseconds, start, stop);
-
-  cudaEventDestroy(start);
-  cudaEventDestroy(stop);
   hyacinDestroy(handle);
-
-  /* Timed region end */
-  auto host_end = std::chrono::high_resolution_clock::now();
-
   std::vector<R> vecS(K);
   cudaMemcpy(vecS.data(), d_S, K * sizeof(R), cudaMemcpyDeviceToHost);
   cudaFree(d_S);
 
-  std::chrono::duration<double, std::milli> host_wtime = host_end - host_start;
-  double duration = time_kernel ? double(milliseconds) : host_wtime.count();
-  printf("%c-SVD [M=%ld,N=%ld,K=%ld] [epi=%.1le] [err=%.12le] [rank=%d] [tts=%lf ms] [kernel=%lf ms] [comm=%lf ms]\n",
-    prec, M, N, K, epi, err, rank, duration, kernel_time, comm_time);
+  /* Timed region end */
+  std::chrono::duration<double, std::milli> host_wtime = std::chrono::high_resolution_clock::now() - host_start;
+  double duration = host_wtime.count();
+
+  printf("%c-SVD [M=%ld,N=%ld,K=%ld] [epi=%.1le] [err=%.12le] [rank=%d] [host=%lf ms] [kernel=%lf ms] [comm=%lf ms]\n",
+    prec, M, N, K, epi, err, rank, duration, kernel_time / double(kernel_runs), comm_time / double(kernel_runs));
 }
 
 int32_t main(int32_t argc, char* argv[]) {
