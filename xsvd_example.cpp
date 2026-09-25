@@ -34,7 +34,8 @@ template <class T, class R> inline void run(char prec, int64_t M, int64_t N, int
     if (!out.empty())
       write_matrix_to_csv(N, rank, &matV[0], N, out);
 
-    err = std::sqrt(check_answer_svd(M, N, rank, &matU[0], M, &matV[0], N, &matA[0], M) / fnorm(M, N, &matA[0], M));
+    double nrm = fnorm(M, N, &matA[0], M);
+    err = nrm == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(check_answer_svd(M, N, rank, &matU[0], M, &matV[0], N, &matA[0], M) / nrm);
     kernel_time = comm_time = 0.;
   }
 

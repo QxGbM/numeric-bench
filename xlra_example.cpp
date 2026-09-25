@@ -101,7 +101,8 @@ template <class T> inline void run(char prec, int64_t M, int64_t N, double epi, 
 
     std::vector<T> matX(N * N);
     cudaMemcpy(matX.data(), d_X, N * N * sizeof(T), cudaMemcpyDeviceToHost);
-    err = std::sqrt(check_answer_lra(rank, M, N, matA.data(), M, ipiv.data(), matX.data(), N) / fnorm(M, N, &matA[0], M));
+    double nrm = fnorm(M, N, &matA[0], M);
+    err = nrm == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(check_answer_lra(rank, M, N, matA.data(), M, ipiv.data(), matX.data(), N) / nrm);
 
     std::fill(ipiv.begin(), ipiv.end(), 0);
     cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);

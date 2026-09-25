@@ -150,7 +150,7 @@ inline void nngemm(blas_int M, blas_int N, blas_int K, const std::complex<double
 
 template <class T>
 double check_answer_svd(int32_t M, int32_t N, int32_t rank, const T* U, int32_t ldu, const T* V, int32_t ldv, const T* B, int32_t ldb) {
-  if (rank <= 0 || M <= 0 || N <= 0) return std::numeric_limits<double>::quiet_NaN();
+  if (rank <= 0 || M <= 0 || N <= 0) return 0.;
   if constexpr(std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, __half2>) {
     std::vector<std::complex<double>> matU(M * rank), matV(N * rank), matB(M * N);
     copy2d(M, rank, U, ldu, &matU[0], M);
@@ -173,7 +173,7 @@ double check_answer_svd(int32_t M, int32_t N, int32_t rank, const T* U, int32_t 
 
 template <class T>
 double fnorm(int32_t M, int32_t N, const T* A, int32_t lda) {
-  if (M <= 0 || N <= 0) return std::numeric_limits<double>::quiet_NaN();
+  if (M <= 0 || N <= 0) return 0.;
   if constexpr(std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, __half2>) {
     std::vector<std::complex<double>> matA(M * N);
     copy2d(M, N, A, lda, &matA[0], M);

@@ -53,8 +53,7 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t gN, i
     ncclAllReduce(d_barrier, d_barrier, 2, ncclDouble, ncclSum, comm, handle.cudaStream);
     cudaStreamSynchronize(handle.cudaStream);
     cudaMemcpy(&ret, d_barrier, sizeof(double2), cudaMemcpyDeviceToHost);
-    cudaMemset(d_barrier, 0xDEADBEEF, sizeof(double2));
-    err = std::sqrt(ret[0] / ret[1]);
+    err = ret[1] == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(ret[0] / ret[1]);
 
     ncclAllReduce(d_barrier, d_barrier, 1, ncclInt32, ncclMin, comm, handle.cudaStream);
     cudaStreamSynchronize(handle.cudaStream);
