@@ -34,7 +34,7 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t gN, i
   ncclCommSplit(comm, grid_col, grid_row, &comm_col, nullptr);
   hyacinCreate2D(&handle, comm_col, comm_row, 1);
 
-  int32_t* d_barrier = nullptr; cudaMalloc((void**)(&d_barrier), sizeof(double2));
+  int32_t* d_barrier = nullptr; cudaMalloc((void**)(&d_barrier), 5 * sizeof(double));
   int32_t r1 = svd_fit_transform(handle, algo, epi, lM, gM, lN, K, d_A, lM, d_U, lM, d_S, d_V, lN, lN), N2 = r1;
   int32_t offset = hyacinXAllGatherV1Dcol(handle, lM, &N2, int32_t(sizeof(T)), d_U, lM);
   int32_t r2 = svd_fit_transform(handle, algo, epi, lM, gM, N2, K, d_U, lM, d_U, lM, d_S, d_V, lN, lN, r1, offset);
@@ -43,16 +43,9 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t gN, i
   cudaMemcpy(matU.data(), d_U, lM * K * sizeof(T), cudaMemcpyDeviceToHost);
   cudaMemcpy(matV.data(), d_V, K * lN * sizeof(T), cudaMemcpyDeviceToHost);
 
-  double ret[2]{ check_answer_svd(lM, lN, r2, &matU[0], lM, &matV[0], lN, &matA[0], lM), fnorm(lM, lN, &matA[0], lM) };
-  cudaMemcpy(d_barrier, ret, sizeof(double2), cudaMemcpyHostToDevice);
-  ncclAllReduce(d_barrier, d_barrier, 2, ncclDouble, ncclSum, comm, handle.cudaStream);
-  cudaStreamSynchronize(handle.cudaStream);
-  cudaMemcpy(ret, d_barrier, sizeof(double2), cudaMemcpyDeviceToHost);
-  double err = ret[1] == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(ret[0] / ret[1]);
-
   ncclAllReduce(d_barrier, d_barrier, 1, ncclInt32, ncclMin, comm, handle.cudaStream);
   cudaStreamSynchronize(handle.cudaStream);
-  kernel_time = comm_time = 0.;
+  kernel_time = rep_time = comm_time = 0.;
 
   for (int32_t i = 0; i < kernel_runs; ++i) {
     N2 = r1 = svd_fit_transform(handle, algo, epi, lM, gM, lN, K, d_A, lM, d_U, lM, d_S, d_V, lN, lN);
@@ -60,12 +53,13 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t gN, i
     r2 = svd_fit_transform(handle, algo, epi, lM, gM, N2, K, d_U, lM, d_U, lM, d_S, d_V, lN, lN, r1, offset);
   }
 
-  ret[0] = kernel_time; ret[1] = comm_time;
-  cudaMemcpy(d_barrier, ret, sizeof(double2), cudaMemcpyHostToDevice);
-  ncclAllReduce(d_barrier, d_barrier, 2, ncclDouble, ncclSum, comm, handle.cudaStream);
+  double ret[5]{ kernel_time, rep_time, comm_time, check_answer_svd(lM, lN, r2, &matU[0], lM, &matV[0], lN, &matA[0], lM), fnorm(lM, lN, &matA[0], lM) };
+  cudaMemcpy(d_barrier, ret, 5 * sizeof(double), cudaMemcpyHostToDevice);
+  ncclAllReduce(d_barrier, d_barrier, 5, ncclDouble, ncclSum, comm, handle.cudaStream);
   cudaStreamSynchronize(handle.cudaStream);
-  cudaMemcpy(ret, d_barrier, sizeof(double2), cudaMemcpyDeviceToHost);
-  kernel_time = ret[0]; comm_time = ret[1];
+  cudaMemcpy(ret, d_barrier, 5 * sizeof(double), cudaMemcpyDeviceToHost);
+  double div = 1. / double(tile_m * tile_n * kernel_runs); kernel_time = ret[0] * div; rep_time = ret[1] * div; comm_time = ret[2] * div;
+  double err = ret[3] == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(ret[3] / ret[4]);
 
   hyacinDestroy(handle);
   ncclCommDestroy(comm);
@@ -79,8 +73,8 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t gN, i
   std::chrono::duration<double, std::milli> host_wtime = std::chrono::high_resolution_clock::now() - host_start;
   double duration = host_wtime.count();
 
-  printf("%c-SVD#(%d,%d) [M=%ld,N=%ld,K=%ld] [epi=%.1le] [err=%.12le] [rank1=%d,rank2=%d] [host=%lf ms] [kernel=%lf ms] [comm=%lf ms]\n",
-    prec, grid_row, grid_col, gM, gN, K, epi, err, r1, r2, duration, kernel_time / double(tile_m * tile_n * kernel_runs), comm_time / double(tile_m * tile_n * kernel_runs));
+  printf("%c-SVD#(%d,%d) [M=%ld,N=%ld,K=%ld] [epi=%.1le] [err=%.12le] [rank1=%d,rank2=%d] [host=%lf ms] [kernel=%lf ms] [replicate=%lf ms] [comm=%lf ms]\n",
+    prec, grid_row, grid_col, gM, gN, K, epi, err, r1, r2, duration, kernel_time, rep_time, comm_time);
 }
 
 int32_t main(int32_t argc, char* argv[]) {

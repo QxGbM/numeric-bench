@@ -34,7 +34,7 @@ template <class T, class R> inline void run(char prec, int64_t M, int64_t N, int
 
   double nrm = fnorm(M, N, &matA[0], M);
   double err = nrm == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(check_answer_svd(M, N, rank, &matU[0], M, &matV[0], N, &matA[0], M) / nrm);
-  kernel_time = comm_time = 0.;
+  kernel_time = 0.;
 
   for (int32_t i = 0; i < kernel_runs; ++i)
     rank = svd_fit_transform(handle, algo, epi, M, M, N, K, d_A, M, d_U, M, d_S, d_V, N, N);
@@ -48,8 +48,8 @@ template <class T, class R> inline void run(char prec, int64_t M, int64_t N, int
   std::chrono::duration<double, std::milli> host_wtime = std::chrono::high_resolution_clock::now() - host_start;
   double duration = host_wtime.count();
 
-  printf("%c-SVD [M=%ld,N=%ld,K=%ld] [epi=%.1le] [err=%.12le] [rank=%d] [host=%lf ms] [kernel=%lf ms] [comm=%lf ms]\n",
-    prec, M, N, K, epi, err, rank, duration, kernel_time / double(kernel_runs), comm_time / double(kernel_runs));
+  printf("%c-SVD [M=%ld,N=%ld,K=%ld] [epi=%.1le] [err=%.12le] [rank=%d] [host=%lf ms] [kernel=%lf ms]\n",
+    prec, M, N, K, epi, err, rank, duration, kernel_time / double(kernel_runs));
 }
 
 int32_t main(int32_t argc, char* argv[]) {

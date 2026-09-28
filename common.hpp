@@ -20,7 +20,7 @@ const int32_t u_corr = 6; // increase for better Quantization accuracy
 const int32_t g_corr = -5; // increase for higher Fp-Gram accuracy
 const int32_t kernel_runs = 3;
 const char use_evd = 'A';
-double kernel_time = 0., comm_time = 0.;
+double kernel_time = 0., rep_time = 0., comm_time = 0.;
 
 template <class T, class S> inline T conv(S x) {
   if constexpr(std::is_same_v<T, __half2> && std::is_same_v<S, std::complex<double>>) { return make_half2(__double2half(x.real()), __double2half(x.imag())); } else
@@ -211,20 +211,20 @@ template <> inline hyacinPrecision_t __precA<__half2>() { return HYACIN_F16_COMP
 template <class T, class R>
 int32_t svd_fit_transform(hyacinHandle_t handle, char algo, double epi,
   int32_t M, int32_t gM, int32_t N, int32_t K, const T* A, int32_t lda, T* U, int32_t ldu, R* S, T* V, int32_t ldv, int32_t Mv, int32_t Nv = 0, int32_t lcol_offset = 0) {
-  hyacinPrecision_t precA = __precA<T>();
-  int32_t* vexp = nullptr, cPanels, lPanels, gElemBytes; uint64_t strideC;
+  hyacinPrecision_t Atype = __precA<T>(), Gtype;
+  int32_t* vexp = nullptr, u, cPanels, lPanels, gElemBytes; uint64_t strideC;
   cudaMallocAsync((void**)&vexp, uint64_t(N) * sizeof(int32_t), handle.cudaStream);
-  int32_t u = hyacinXquantizeScale(handle, epi, u_corr, M, gM, N, precA, A, lda, 0, vexp, &cPanels, &lPanels, &strideC);
-  hyacinPrecision_t Gtype = hyacinXGautoType(g_corr, gM, precA, u, &gElemBytes);
+  hyacinXGautoType(epi, u_corr, g_corr, gM, N, Atype, &u, &cPanels, &lPanels, &strideC, &Gtype, &gElemBytes);
+  hyacinXquantizeScale(handle, M, N, Atype, A, lda, u, 0, vexp);
   hyacinAllReduceVExp(handle, uint64_t(N), vexp);
 
   uint64_t* C = nullptr; cudaMallocAsync((void**)&C, uint64_t(cPanels) * uint64_t(lPanels) * strideC * sizeof(uint64_t), handle.cudaStream);
-  void* param = hyacinXherkBatchCreate(handle, algo, epi, u_corr, batchK, N, precA);
+  void* param = hyacinXherkBatchCreate(handle, algo, epi, u_corr, batchK, N, Atype);
 
   int32_t beta = 0, iter = param ? batchIter : M; u = param ? HYACIN_QUERY_U : u;
   for (int32_t i = 0; i < M; i += iter)
-  { int32_t rows = std::min(M - i, iter); hyacinXherkBatch(handle, algo, rows, N, precA, &A[i], lda, u, vexp, &beta, lPanels, C, param); }
-  hyacinXherkBatchFlush(handle, N, precA, vexp, beta, lPanels, C, param);
+  { int32_t rows = std::min(M - i, iter); hyacinXherkBatch(handle, algo, rows, N, Atype, &A[i], lda, u, vexp, &beta, lPanels, C, param); }
+  hyacinXherkBatchFlush(handle, N, Atype, vexp, beta, lPanels, C, param);
   hyacinXherkBatchDestroy(handle, param);
   hyacinAllReduce1Drow(handle, cPanels, lPanels, strideC, C);
 
@@ -233,13 +233,14 @@ int32_t svd_fit_transform(hyacinHandle_t handle, char algo, double epi,
   cudaFreeAsync(vexp, handle.cudaStream); cudaFreeAsync(C, handle.cudaStream);
 
   T* X = nullptr; cudaMallocAsync((void**)&X, uint64_t(N) * uint64_t(K) * sizeof(T), handle.cudaStream);
-  int32_t rank = hyacinXGevPcsvd(handle, use_evd, 'A', epi, N, K, oversampling, precA, X, N, S, Gtype, G, N);
+  int32_t rank = hyacinXGevPcsvd(handle, use_evd, 'A', epi, N, K, oversampling, Atype, X, N, S, Gtype, G, N);
   cudaFreeAsync(G, handle.cudaStream);
-  hyacinXtransform(handle, M, N, rank, precA, A, lda, U, ldu, X, N);
-  hyacinXtransform(handle, Mv, Nv, rank, precA, V, ldv, V, ldv, &X[lcol_offset], N);
+  hyacinXtransform(handle, M, N, rank, Atype, A, lda, U, ldu, X, N);
+  hyacinXtransform(handle, Mv, Nv, rank, Atype, V, ldv, V, ldv, &X[lcol_offset], N);
   cudaFreeAsync(X, handle.cudaStream);
 
-  hyacinSync_TimerSegments(handle, &kernel_time, &comm_time);
+  double eventMs[3]{ 'D', 'R', 'C' }; hyacinSync_TimerSegments(handle, eventMs, 3);
+  kernel_time += eventMs[0] + eventMs[1] + eventMs[2]; rep_time += eventMs[1]; comm_time += eventMs[2];
   return rank;
 }
 

@@ -45,19 +45,20 @@ double check_answer_lra(int32_t rank, int32_t M, int32_t N, const T* A, int32_t 
 
 template <class T>
 int32_t id_hyac(hyacinHandle_t handle, double epi, int32_t M, int32_t N, int32_t K, const T* A, int32_t lda, int32_t* jpiv, T* R, int32_t ldr, char algo) {
-  hyacinPrecision_t precA = __precA<T>();
-  int32_t* vexp = nullptr, cPanels, lPanels, gElemBytes; uint64_t strideC;
+  hyacinPrecision_t Atype = __precA<T>(), Gtype;
+  int32_t* vexp = nullptr, u, cPanels, lPanels, gElemBytes; uint64_t strideC;
   cudaMallocAsync((void**)&vexp, uint64_t(N) * sizeof(int32_t), handle.cudaStream);
-  int32_t u = hyacinXquantizeScale(handle, epi, u_corr, M, M, N, precA, A, lda, 0, vexp, &cPanels, &lPanels, &strideC);
-  hyacinPrecision_t Gtype = hyacinXGautoType(g_corr, M, precA, u, &gElemBytes);
+  hyacinXGautoType(epi, u_corr, g_corr, M, N, Atype, &u, &cPanels, &lPanels, &strideC, &Gtype, &gElemBytes);
+  hyacinXquantizeScale(handle, M, N, Atype, A, lda, u, 0, vexp);
+  hyacinAllReduceVExp(handle, uint64_t(N), vexp);
 
   uint64_t* C = nullptr; cudaMallocAsync((void**)&C, uint64_t(cPanels) * uint64_t(lPanels) * strideC * sizeof(uint64_t), handle.cudaStream);
-  void* param = hyacinXherkBatchCreate(handle, algo, epi, u_corr, batchK, N, precA);
+  void* param = hyacinXherkBatchCreate(handle, algo, epi, u_corr, batchK, N, Atype);
 
   int32_t beta = 0, iter = param ? batchIter : M; u = param ? HYACIN_QUERY_U : u;
   for (int32_t i = 0; i < M; i += iter)
-  { int32_t rows = std::min(M - i, iter); hyacinXherkBatch(handle, algo, rows, N, precA, &A[i], lda, u, vexp, &beta, lPanels, C, param); }
-  hyacinXherkBatchFlush(handle, N, precA, vexp, beta, lPanels, C, param);
+  { int32_t rows = std::min(M - i, iter); hyacinXherkBatch(handle, algo, rows, N, Atype, &A[i], lda, u, vexp, &beta, lPanels, C, param); }
+  hyacinXherkBatchFlush(handle, N, Atype, vexp, beta, lPanels, C, param);
   hyacinXherkBatchDestroy(handle, param);
 
   void* G = nullptr; cudaMallocAsync((void**)&G, uint64_t(N) * uint64_t(N) * uint64_t(gElemBytes), handle.cudaStream);
@@ -65,11 +66,12 @@ int32_t id_hyac(hyacinHandle_t handle, double epi, int32_t M, int32_t N, int32_t
   cudaFreeAsync(vexp, handle.cudaStream); cudaFreeAsync(C, handle.cudaStream);
 
   int32_t* piv = nullptr; cudaMallocAsync((void**)&piv, uint64_t(N) * sizeof(int32_t), handle.cudaStream);
-  int32_t rank = hyacinXGinterp(handle, 'A', epi, N, K, oversampling, precA, R, ldr, (int32_t*)piv, Gtype, G, N);
+  int32_t rank = hyacinXGinterp(handle, 'A', epi, N, K, oversampling, Atype, R, ldr, (int32_t*)piv, Gtype, G, N);
   cudaMemcpyAsync(jpiv, piv, int64_t(N) * sizeof(int32_t), cudaMemcpyDefault, handle.cudaStream);
   cudaFreeAsync(G, handle.cudaStream); cudaFreeAsync(piv, handle.cudaStream);
 
-  hyacinSync_TimerSegments(handle, &kernel_time, &comm_time);
+  double eventMs[3]{ 'D', 'R', 'C' }; hyacinSync_TimerSegments(handle, eventMs, 3);
+  kernel_time += eventMs[0] + eventMs[1] + eventMs[2]; rep_time += eventMs[1]; comm_time += eventMs[2];
   return rank;
 }
 
@@ -100,7 +102,7 @@ template <class T> inline void run(char prec, int64_t M, int64_t N, double epi, 
 
   std::fill(ipiv.begin(), ipiv.end(), 0);
   cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);
-  kernel_time = comm_time = 0.;
+  kernel_time = 0.;
 
   for (int32_t i = 0; i < kernel_runs; ++i)
     rank = id_hyac(handle, epi, M, N, N, d_A, M, ipiv.data(), d_X, N, algo);
@@ -113,8 +115,8 @@ template <class T> inline void run(char prec, int64_t M, int64_t N, double epi, 
   std::chrono::duration<double, std::milli> host_wtime = std::chrono::high_resolution_clock::now() - host_start;
   double duration = host_wtime.count();
 
-  printf("%c-LRA [M=%ld,N=%ld] [epi=%.1le] [err=%.12le] [rank=%d] [host=%lf ms] [kernel=%lf ms] [comm=%lf ms]\n",
-    prec, M, N, epi, err, rank, duration, kernel_time / double(kernel_runs), comm_time / double(kernel_runs));
+  printf("%c-LRA [M=%ld,N=%ld] [epi=%.1le] [err=%.12le] [rank=%d] [host=%lf ms] [kernel=%lf ms]\n",
+    prec, M, N, epi, err, rank, duration, kernel_time / double(kernel_runs));
 }
 
 int32_t main(int32_t argc, char* argv[]) {
