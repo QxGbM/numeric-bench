@@ -30,7 +30,6 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t N, in
   hyacinCreate2D(&handle, comm, nullptr, 1);
 
   int32_t* d_barrier = nullptr; cudaMalloc((void**)(&d_barrier), sizeof(double2));
-  double err = std::numeric_limits<double>::quiet_NaN();
   int32_t rank = svd_fit_transform(handle, algo, epi, lM, gM, N, K, d_A, lM, d_U, lM, d_S, d_V, N, N);
 
   std::vector<T> matU(lM * K), matV(K * N);
@@ -42,7 +41,7 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t N, in
   ncclAllReduce(d_barrier, d_barrier, 2, ncclDouble, ncclSum, comm, handle.cudaStream);
   cudaStreamSynchronize(handle.cudaStream);
   cudaMemcpy(ret, d_barrier, sizeof(double2), cudaMemcpyDeviceToHost);
-  err = ret[1] == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(ret[0] / ret[1]);
+  double err = ret[1] == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(ret[0] / ret[1]);
 
   ncclAllReduce(d_barrier, d_barrier, 1, ncclInt32, ncclMin, comm, handle.cudaStream);
   cudaStreamSynchronize(handle.cudaStream);

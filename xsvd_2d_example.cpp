@@ -35,7 +35,6 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t gN, i
   hyacinCreate2D(&handle, comm_col, comm_row, 1);
 
   int32_t* d_barrier = nullptr; cudaMalloc((void**)(&d_barrier), sizeof(double2));
-  double err = std::numeric_limits<double>::quiet_NaN();
   int32_t r1 = svd_fit_transform(handle, algo, epi, lM, gM, lN, K, d_A, lM, d_U, lM, d_S, d_V, lN, lN), N2 = r1;
   int32_t offset = hyacinXAllGatherV1Dcol(handle, lM, &N2, int32_t(sizeof(T)), d_U, lM);
   int32_t r2 = svd_fit_transform(handle, algo, epi, lM, gM, N2, K, d_U, lM, d_U, lM, d_S, d_V, lN, lN, r1, offset);
@@ -49,7 +48,7 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t gN, i
   ncclAllReduce(d_barrier, d_barrier, 2, ncclDouble, ncclSum, comm, handle.cudaStream);
   cudaStreamSynchronize(handle.cudaStream);
   cudaMemcpy(ret, d_barrier, sizeof(double2), cudaMemcpyDeviceToHost);
-  err = ret[1] == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(ret[0] / ret[1]);
+  double err = ret[1] == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(ret[0] / ret[1]);
 
   ncclAllReduce(d_barrier, d_barrier, 1, ncclInt32, ncclMin, comm, handle.cudaStream);
   cudaStreamSynchronize(handle.cudaStream);

@@ -23,7 +23,6 @@ template <class T, class R> inline void run(char prec, int64_t M, int64_t N, int
   hyacinHandle_t handle;
   hyacinCreate(&handle, 1);
 
-  double err = std::numeric_limits<double>::quiet_NaN();
   int32_t rank = svd_fit_transform(handle, algo, epi, M, M, N, K, d_A, M, d_U, M, d_S, d_V, N, N);
 
   std::vector<T> matU(M * K), matV(K * N);
@@ -34,7 +33,7 @@ template <class T, class R> inline void run(char prec, int64_t M, int64_t N, int
     write_matrix_to_csv(N, rank, &matV[0], N, out);
 
   double nrm = fnorm(M, N, &matA[0], M);
-  err = nrm == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(check_answer_svd(M, N, rank, &matU[0], M, &matV[0], N, &matA[0], M) / nrm);
+  double err = nrm == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(check_answer_svd(M, N, rank, &matU[0], M, &matV[0], N, &matA[0], M) / nrm);
   kernel_time = comm_time = 0.;
 
   for (int32_t i = 0; i < kernel_runs; ++i)

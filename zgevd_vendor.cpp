@@ -3,7 +3,7 @@
 #include <iostream>
 
 int32_t main(int32_t argc, char* argv[]) {
-  std::string file, ref;
+  std::string file;
   int64_t gM = 2048, N = 2048, K = 1500, mb = 512;
 
   for (int32_t i = 1; i < argc; ++i) {
@@ -12,7 +12,6 @@ int32_t main(int32_t argc, char* argv[]) {
     else if (std::strncmp(argv[i], "K=", 2) == 0) { std::sscanf(argv[i], "K=%ld", &K); }
     else if (std::strncmp(argv[i], "mb=", 3) == 0) { std::sscanf(argv[i], "mb=%ld", &mb); }
     else if (std::strncmp(argv[i], "file=", 5) == 0) { file.resize(std::strlen(argv[i])); std::sscanf(argv[i], "file=%s", file.data()); }
-    else if (std::strncmp(argv[i], "ref=", 4) == 0) { ref.resize(std::strlen(argv[i])); std::sscanf(argv[i], "ref=%s", ref.data()); }
     else { std::cerr << "Ignored parameter: " << argv[i] << std::endl; }
   }
   N = std::min(gM, N); K = std::min(N, K);
@@ -81,18 +80,12 @@ int32_t main(int32_t argc, char* argv[]) {
   cudaMemcpy(matV.data(), &d_V[col_start * N], K * N * sizeof(std::complex<double>), cudaMemcpyDeviceToHost);
 
   double ret[2]{ check_answer_svd(lM, N, K, &matU[0], lM, &matV[0], N, &matA[0], lM), fnorm(lM, N, &matA[0], lM) };
-  cudaMemcpy(d_barrier, &ret, sizeof(double2), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_barrier, ret, sizeof(double2), cudaMemcpyHostToDevice);
   ncclAllReduce(d_barrier, d_barrier, 2, ncclDouble, ncclSum, comm, handle.cudaStream);
   cudaStreamSynchronize(handle.cudaStream);
-  cudaMemcpy(&ret, d_barrier, sizeof(double2), cudaMemcpyDeviceToHost);
+  cudaMemcpy(ret, d_barrier, sizeof(double2), cudaMemcpyDeviceToHost);
   cudaMemset(d_barrier, 0xDEADBEEF, sizeof(double2));
-  double err = std::sqrt(ret[0] / ret[1]), max_elem_err = std::numeric_limits<double>::quiet_NaN();
-
-  if (!ref.empty() && grid_row == 0) {
-    std::vector<std::complex<double>> ref_V(N * int64_t(K));
-    matrix_from_row_major_csv(N, K, 512, 512, ref_V.data(), N, ref);
-    max_elem_err = max_elementwise_relerr(N, K, ref_V.data(), N, matV.data(), N);
-  }
+  double err = ret[1] == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(ret[0] / ret[1]);
 
   cudaMemcpy(d_A, matA.data(), lM * N * sizeof(std::complex<double>), cudaMemcpyHostToDevice);
   ncclAllReduce(d_barrier, d_barrier, 1, ncclInt32, ncclMin, comm, handle.cudaStream);
@@ -115,6 +108,13 @@ int32_t main(int32_t argc, char* argv[]) {
   float seg1 = 0.0f, seg2 = 0.0f, seg3 = 0.0f; cudaEventElapsedTime(&seg1, start, cstart); cudaEventElapsedTime(&seg2, cstart, cstop); cudaEventElapsedTime(&seg3, cstop, stop);
   kernel_time = double(seg1) + double(seg3); comm_time = double(seg2);
 
+  ret[0] = kernel_time; ret[1] = comm_time;
+  cudaMemcpy(d_barrier, ret, sizeof(double2), cudaMemcpyHostToDevice);
+  ncclAllReduce(d_barrier, d_barrier, 2, ncclDouble, ncclSum, comm, handle.cudaStream);
+  cudaStreamSynchronize(handle.cudaStream);
+  cudaMemcpy(ret, d_barrier, sizeof(double2), cudaMemcpyDeviceToHost);
+  kernel_time = ret[0]; comm_time = ret[1];
+
   cudaFree(d_barrier);
   cudaEventDestroy(start);
   cudaEventDestroy(stop);
@@ -133,8 +133,8 @@ int32_t main(int32_t argc, char* argv[]) {
   std::free(evd_work_host);
 
   double duration = double(milliseconds);
-  printf("Z-SVD#%d [M=%ld,N=%ld,K=%ld] [err=%.12le] [max_elem_err=%.12le] [tts=%lf ms] [kernel=%lf ms] [comm=%lf ms]\n",
-    grid_row, gM, N, K, err, max_elem_err, duration, kernel_time, comm_time);
+  printf("Z-SVD#%d [M=%ld,N=%ld,K=%ld] [err=%.12le] [tts=%lf ms] [kernel=%lf ms] [comm=%lf ms]\n",
+    grid_row, gM, N, K, err, duration, kernel_time / double(tile_m), comm_time / double(tile_m));
 
   cu_err = cudaGetLastError();
   if (cu_err != cudaSuccess)

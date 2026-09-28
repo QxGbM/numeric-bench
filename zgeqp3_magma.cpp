@@ -1,10 +1,7 @@
 
-#include <vector>
-#include <complex>
+#include <common.hpp>
 #include <iostream>
-#include <algorithm>
 #include <magma_v2.h>
-#include <cublas_v2.h>
 
 void make_2D_oscillatory(double w, int32_t sep, int32_t M, int32_t N, std::complex<double>* A, int32_t lda) {
   constexpr int32_t height = 128;
@@ -27,8 +24,8 @@ int32_t main(int32_t argc, char* argv[]) {
   { fprintf(stderr, "%s\n", cudaGetErrorString(cu_err)); return -1; }
 
   magma_init();
-  int64_t M = 1 < argc ? std::atoi(argv[1]) : 1024;
-  int64_t N = 2 < argc ? std::atoi(argv[2]) : 128;
+  int64_t M = 1 < argc ? std::atoi(argv[1]) : 2048;
+  int64_t N = 2 < argc ? std::atoi(argv[2]) : 2048;
   N = std::min(M, N);
 
   double epi = 3 < argc ? std::atof(argv[3]) : 1.e-12;
@@ -44,7 +41,7 @@ int32_t main(int32_t argc, char* argv[]) {
   std::vector<magma_int_t> jpvt(N, 0);
 
   std::vector<std::complex<double>> matA(M * N), matB(M * N);
-  make_2D_oscillatory(1., 0, M, N, matA.data(), M);
+  matrix_generator<std::complex<double>>(M, N).generate_block(1., 512, 512, &matA[0], M);
   
   cudaMalloc((void**)&dA, M * N * sizeof(std::complex<double>));
   cudaMalloc((void**)&dB, M * N * sizeof(std::complex<double>));
