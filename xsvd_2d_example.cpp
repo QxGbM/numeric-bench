@@ -34,31 +34,26 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t gN, i
   ncclCommSplit(comm, grid_col, grid_row, &comm_col, nullptr);
   hyacinCreate2D(&handle, comm_col, comm_row, 1);
 
-  int32_t* d_barrier = nullptr;
-  int32_t r1 = 0, r2 = 0, N2 = 0, offset = 0;
+  int32_t* d_barrier = nullptr; cudaMalloc((void**)(&d_barrier), sizeof(double2));
   double err = std::numeric_limits<double>::quiet_NaN();
-  if (1 < kernel_runs) {
-    cudaMalloc((void**)(&d_barrier), sizeof(double2));
-    cudaMemset(d_barrier, 0xDEADBEEF, sizeof(double2));
-    N2 = r1 = svd_fit_transform(handle, algo, epi, lM, gM, lN, K, d_A, lM, d_U, lM, d_S, d_V, lN, lN);
-    offset = hyacinXAllGatherV1Dcol(handle, lM, &N2, int32_t(sizeof(T)), d_U, lM);
-    r2 = svd_fit_transform(handle, algo, epi, lM, gM, N2, K, d_U, lM, d_U, lM, d_S, d_V, lN, lN, r1, offset);
+  int32_t r1 = svd_fit_transform(handle, algo, epi, lM, gM, lN, K, d_A, lM, d_U, lM, d_S, d_V, lN, lN), N2 = r1;
+  int32_t offset = hyacinXAllGatherV1Dcol(handle, lM, &N2, int32_t(sizeof(T)), d_U, lM);
+  int32_t r2 = svd_fit_transform(handle, algo, epi, lM, gM, N2, K, d_U, lM, d_U, lM, d_S, d_V, lN, lN, r1, offset);
 
-    std::vector<T> matU(lM * K), matV(K * lN);
-    cudaMemcpy(matU.data(), d_U, lM * K * sizeof(T), cudaMemcpyDeviceToHost);
-    cudaMemcpy(matV.data(), d_V, K * lN * sizeof(T), cudaMemcpyDeviceToHost);
+  std::vector<T> matU(lM * K), matV(K * lN);
+  cudaMemcpy(matU.data(), d_U, lM * K * sizeof(T), cudaMemcpyDeviceToHost);
+  cudaMemcpy(matV.data(), d_V, K * lN * sizeof(T), cudaMemcpyDeviceToHost);
 
-    double ret[2]{ check_answer_svd(lM, lN, r2, &matU[0], lM, &matV[0], lN, &matA[0], lM), fnorm(lM, lN, &matA[0], lM) };
-    cudaMemcpy(d_barrier, &ret, sizeof(double2), cudaMemcpyHostToDevice);
-    ncclAllReduce(d_barrier, d_barrier, 2, ncclDouble, ncclSum, comm, handle.cudaStream);
-    cudaStreamSynchronize(handle.cudaStream);
-    cudaMemcpy(&ret, d_barrier, sizeof(double2), cudaMemcpyDeviceToHost);
-    err = ret[1] == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(ret[0] / ret[1]);
+  double ret[2]{ check_answer_svd(lM, lN, r2, &matU[0], lM, &matV[0], lN, &matA[0], lM), fnorm(lM, lN, &matA[0], lM) };
+  cudaMemcpy(d_barrier, ret, sizeof(double2), cudaMemcpyHostToDevice);
+  ncclAllReduce(d_barrier, d_barrier, 2, ncclDouble, ncclSum, comm, handle.cudaStream);
+  cudaStreamSynchronize(handle.cudaStream);
+  cudaMemcpy(ret, d_barrier, sizeof(double2), cudaMemcpyDeviceToHost);
+  err = ret[1] == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(ret[0] / ret[1]);
 
-    ncclAllReduce(d_barrier, d_barrier, 1, ncclInt32, ncclMin, comm, handle.cudaStream);
-    cudaStreamSynchronize(handle.cudaStream);
-    kernel_time = comm_time = 0.;
-  }
+  ncclAllReduce(d_barrier, d_barrier, 1, ncclInt32, ncclMin, comm, handle.cudaStream);
+  cudaStreamSynchronize(handle.cudaStream);
+  kernel_time = comm_time = 0.;
 
   for (int32_t i = 0; i < kernel_runs; ++i) {
     N2 = r1 = svd_fit_transform(handle, algo, epi, lM, gM, lN, K, d_A, lM, d_U, lM, d_S, d_V, lN, lN);
@@ -66,24 +61,27 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t gN, i
     r2 = svd_fit_transform(handle, algo, epi, lM, gM, N2, K, d_U, lM, d_U, lM, d_S, d_V, lN, lN, r1, offset);
   }
 
-  if (1 < kernel_runs) {
-    ncclAllReduce(d_barrier, d_barrier, 1, ncclInt32, ncclMin, comm, handle.cudaStream);
-    cudaFree(d_barrier);
-  }
+  ret[0] = kernel_time; ret[1] = comm_time;
+  cudaMemcpy(d_barrier, ret, sizeof(double2), cudaMemcpyHostToDevice);
+  ncclAllReduce(d_barrier, d_barrier, 2, ncclDouble, ncclSum, comm, handle.cudaStream);
+  cudaStreamSynchronize(handle.cudaStream);
+  cudaMemcpy(ret, d_barrier, sizeof(double2), cudaMemcpyDeviceToHost);
+  kernel_time = ret[0]; comm_time = ret[1];
+
   hyacinDestroy(handle);
   ncclCommDestroy(comm);
   ncclCommDestroy(comm_row);
   ncclCommDestroy(comm_col);
   std::vector<R> vecS(K);
   cudaMemcpy(vecS.data(), d_S, K * sizeof(R), cudaMemcpyDeviceToHost);
-  cudaFree(d_A); cudaFree(d_U); cudaFree(d_S); cudaFree(d_V);
+  cudaFree(d_A); cudaFree(d_U); cudaFree(d_S); cudaFree(d_V); cudaFree(d_barrier);
 
   /* Timed region end */
   std::chrono::duration<double, std::milli> host_wtime = std::chrono::high_resolution_clock::now() - host_start;
   double duration = host_wtime.count();
 
   printf("%c-SVD#(%d,%d) [M=%ld,N=%ld,K=%ld] [epi=%.1le] [err=%.12le] [rank1=%d,rank2=%d] [host=%lf ms] [kernel=%lf ms] [comm=%lf ms]\n",
-    prec, grid_row, grid_col, gM, gN, K, epi, err, r1, r2, duration, kernel_time / double(kernel_runs), comm_time / double(kernel_runs));
+    prec, grid_row, grid_col, gM, gN, K, epi, err, r1, r2, duration, kernel_time / double(tile_m * tile_n * kernel_runs), comm_time / double(tile_m * tile_n * kernel_runs));
 }
 
 int32_t main(int32_t argc, char* argv[]) {

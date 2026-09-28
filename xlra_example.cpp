@@ -46,26 +46,25 @@ double check_answer_lra(int32_t rank, int32_t M, int32_t N, const T* A, int32_t 
 template <class T>
 int32_t id_hyac(hyacinHandle_t handle, double epi, int32_t M, int32_t N, int32_t K, const T* A, int32_t lda, int32_t* jpiv, T* R, int32_t ldr, char algo) {
   hyacinPrecision_t precA = __precA<T>();
-  int32_t* vexp = nullptr, cPanels, lPanels, gElemBytes;
-  cudaMallocAsync((void**)&vexp, int64_t(N) * sizeof(int32_t), handle.cudaStream);
-  int32_t u = hyacinXquantizeScale(handle, epi, u_corr, M, M, N, precA, A, lda, 0, vexp, &cPanels, &lPanels);
+  int32_t* vexp = nullptr, cPanels, lPanels, gElemBytes; uint64_t strideC;
+  cudaMallocAsync((void**)&vexp, uint64_t(N) * sizeof(int32_t), handle.cudaStream);
+  int32_t u = hyacinXquantizeScale(handle, epi, u_corr, M, M, N, precA, A, lda, 0, vexp, &cPanels, &lPanels, &strideC);
   hyacinPrecision_t Gtype = hyacinXGautoType(g_corr, M, precA, u, &gElemBytes);
 
-  int64_t strideC = (int64_t(N) * int64_t(N + 1)) / int64_t(2);
-  uint64_t* C = nullptr; cudaMallocAsync((void**)&C, int64_t(cPanels) * int64_t(lPanels) * int64_t(strideC) * sizeof(uint64_t), handle.cudaStream);
+  uint64_t* C = nullptr; cudaMallocAsync((void**)&C, uint64_t(cPanels) * uint64_t(lPanels) * strideC * sizeof(uint64_t), handle.cudaStream);
   void* param = hyacinXherkBatchCreate(handle, algo, epi, u_corr, batchK, N, precA);
 
-  int32_t beta = 0, iter = param ? batchIter : M;
+  int32_t beta = 0, iter = param ? batchIter : M; u = param ? HYACIN_QUERY_U : u;
   for (int32_t i = 0; i < M; i += iter)
-  { int32_t rows = std::min(M - i, iter); hyacinXherkBatch(handle, algo, rows, N, precA, &A[i], lda, HYACIN_QUERY_U, vexp, &beta, lPanels, C, param); }
+  { int32_t rows = std::min(M - i, iter); hyacinXherkBatch(handle, algo, rows, N, precA, &A[i], lda, u, vexp, &beta, lPanels, C, param); }
   hyacinXherkBatchFlush(handle, N, precA, vexp, beta, lPanels, C, param);
   hyacinXherkBatchDestroy(handle, param);
 
-  void* G = nullptr; cudaMallocAsync((void**)&G, int64_t(N) * int64_t(N) * int64_t(gElemBytes), handle.cudaStream);
+  void* G = nullptr; cudaMallocAsync((void**)&G, uint64_t(N) * uint64_t(N) * uint64_t(gElemBytes), handle.cudaStream);
   hyacinXdequantize(handle, N, lPanels, C, vexp, Gtype, G, N);
   cudaFreeAsync(vexp, handle.cudaStream); cudaFreeAsync(C, handle.cudaStream);
 
-  int32_t* piv = nullptr; cudaMallocAsync((void**)&piv, int64_t(N) * sizeof(int32_t), handle.cudaStream);
+  int32_t* piv = nullptr; cudaMallocAsync((void**)&piv, uint64_t(N) * sizeof(int32_t), handle.cudaStream);
   int32_t rank = hyacinXGinterp(handle, 'A', epi, N, K, oversampling, precA, R, ldr, (int32_t*)piv, Gtype, G, N);
   cudaMemcpyAsync(jpiv, piv, int64_t(N) * sizeof(int32_t), cudaMemcpyDefault, handle.cudaStream);
   cudaFreeAsync(G, handle.cudaStream); cudaFreeAsync(piv, handle.cudaStream);
@@ -91,20 +90,18 @@ template <class T> inline void run(char prec, int64_t M, int64_t N, double epi, 
   hyacinHandle_t handle;
   hyacinCreate(&handle, 1);
 
-  int32_t rank = 0; double err = std::numeric_limits<double>::quiet_NaN();
-  if (1 < kernel_runs) {
-    rank = id_hyac(handle, epi, M, N, N, d_A, M, ipiv.data(), d_X, N, algo);
-    cudaStreamSynchronize(handle.cudaStream);
+  double err = std::numeric_limits<double>::quiet_NaN();
+  int32_t rank = id_hyac(handle, epi, M, N, N, d_A, M, ipiv.data(), d_X, N, algo);
+  cudaStreamSynchronize(handle.cudaStream);
 
-    std::vector<T> matX(N * N);
-    cudaMemcpy(matX.data(), d_X, N * N * sizeof(T), cudaMemcpyDeviceToHost);
-    double nrm = fnorm(M, N, &matA[0], M);
-    err = nrm == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(check_answer_lra(rank, M, N, matA.data(), M, ipiv.data(), matX.data(), N) / nrm);
+  std::vector<T> matX(N * N);
+  cudaMemcpy(matX.data(), d_X, N * N * sizeof(T), cudaMemcpyDeviceToHost);
+  double nrm = fnorm(M, N, &matA[0], M);
+  err = nrm == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(check_answer_lra(rank, M, N, matA.data(), M, ipiv.data(), matX.data(), N) / nrm);
 
-    std::fill(ipiv.begin(), ipiv.end(), 0);
-    cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);
-    kernel_time = comm_time = 0.;
-  }
+  std::fill(ipiv.begin(), ipiv.end(), 0);
+  cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);
+  kernel_time = comm_time = 0.;
 
   for (int32_t i = 0; i < kernel_runs; ++i)
     rank = id_hyac(handle, epi, M, N, N, d_A, M, ipiv.data(), d_X, N, algo);
