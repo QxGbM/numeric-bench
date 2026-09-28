@@ -14,6 +14,7 @@
 #include <cuda_fp16.h>
 
 using blas_int = int; // LP64 for blas
+const int32_t batchK = 65536, batchIter = 2048;
 const int32_t oversampling = 10; // increase for better LRA accuracy
 const int32_t u_corr = 6; // increase for better Quantization accuracy
 const int32_t g_corr = -5; // increase for higher Fp-Gram accuracy
@@ -211,17 +212,23 @@ template <class T, class R>
 int32_t svd_fit_transform(hyacinHandle_t handle, char algo, double epi,
   int32_t M, int32_t gM, int32_t N, int32_t K, const T* A, int32_t lda, T* U, int32_t ldu, R* S, T* V, int32_t ldv, int32_t Mv, int32_t Nv = 0, int32_t lcol_offset = 0) {
   hyacinPrecision_t precA = __precA<T>();
-  int32_t* vexp = nullptr, cPanels, lPanels;
+  int32_t* vexp = nullptr, cPanels, lPanels, gElemBytes;
   cudaMallocAsync((void**)&vexp, int64_t(N) * sizeof(int32_t), handle.cudaStream);
   int32_t u = hyacinXquantizeScale(handle, epi, u_corr, M, gM, N, precA, A, lda, 0, vexp, &cPanels, &lPanels);
+  hyacinPrecision_t Gtype = hyacinXGautoType(g_corr, gM, precA, u, &gElemBytes);
   hyacinAllReduceVExp(handle, int64_t(N), vexp);
 
   int64_t strideC = (int64_t(N) * int64_t(N + 1)) / int64_t(2);
   uint64_t* C = nullptr; cudaMallocAsync((void**)&C, int64_t(cPanels) * int64_t(lPanels) * int64_t(strideC) * sizeof(uint64_t), handle.cudaStream);
-  hyacinXherk(handle, algo, M, N, precA, A, lda, u, vexp, 0, lPanels, C);
+  void* param = hyacinXherkBatchCreate(handle, algo, epi, u_corr, batchK, N, precA);
+
+  int32_t beta = 0, iter = param ? batchIter : M;
+  for (int32_t i = 0; i < M; i += iter)
+  { int32_t rows = std::min(M - i, iter); hyacinXherkBatch(handle, algo, rows, N, precA, &A[i], lda, HYACIN_QUERY_U, vexp, &beta, lPanels, C, param); }
+  hyacinXherkBatchFlush(handle, N, precA, vexp, beta, lPanels, C, param);
+  hyacinXherkBatchDestroy(handle, param);
   hyacinAllReduce1Drow(handle, cPanels, lPanels, strideC, C);
 
-  int32_t gElemBytes; hyacinPrecision_t Gtype = hyacinXGautoType(g_corr, gM, precA, u, &gElemBytes);
   void* G = nullptr; cudaMallocAsync((void**)&G, int64_t(N) * int64_t(N) * int64_t(gElemBytes), handle.cudaStream);
   hyacinXdequantize(handle, N, lPanels, C, vexp, Gtype, G, N);
   cudaFreeAsync(vexp, handle.cudaStream); cudaFreeAsync(C, handle.cudaStream);
