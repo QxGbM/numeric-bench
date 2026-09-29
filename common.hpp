@@ -151,40 +151,26 @@ inline void nngemm(blas_int M, blas_int N, blas_int K, const std::complex<double
 
 template <class T>
 double check_answer_svd(int32_t M, int32_t N, int32_t rank, const T* U, int32_t ldu, const T* V, int32_t ldv, const T* B, int32_t ldb) {
-  if (rank <= 0 || M <= 0 || N <= 0) return 0.;
-  if constexpr(std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, __half2>) {
-    std::vector<std::complex<double>> matU(M * rank), matV(N * rank), matB(M * N);
-    copy2d(M, rank, U, ldu, &matU[0], M);
-    copy2d(N, rank, V, ldv, &matV[0], N);
-    copy2d(M, N, B, ldb, &matB[0], M);
-    nngemm(M, N, rank, &matU[0], M, &matV[0], N, &matB[0], M);
-    double err = std::transform_reduce(matB.begin(), matB.end(), 0., std::plus<double>(), [](auto i) { return std::norm(i); });
-    return err;
-  }
-  else {
-    std::vector<double> matU(M * rank), matV(N * rank), matB(M * N);
-    copy2d(M, rank, U, ldu, &matU[0], M);
-    copy2d(N, rank, V, ldv, &matV[0], N);
-    copy2d(M, N, B, ldb, &matB[0], M);
-    nngemm(M, N, rank, &matU[0], M, &matV[0], N, &matB[0], M);
-    double err = std::transform_reduce(matB.begin(), matB.end(), 0., std::plus<double>(), [](auto i) { return std::norm(i); });
-    return err;
-  }
+  if (rank <= 0 || M <= 0 || N <= 0) { return 0.; }
+  constexpr int32_t Complex = std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, __half2>;
+  using type = typename std::conditional<Complex, std::complex<double>, double>::type;
+  std::vector<type> matU(M * rank), matV(N * rank), matB(M * N);
+  copy2d(M, rank, U, ldu, &matU[0], M);
+  copy2d(N, rank, V, ldv, &matV[0], N);
+  copy2d(M, N, B, ldb, &matB[0], M);
+  nngemm(M, N, rank, &matU[0], M, &matV[0], N, &matB[0], M);
+  double err = std::transform_reduce(matB.begin(), matB.end(), 0., std::plus<double>(), [](auto i) { return std::norm(i); });
+  return err;
 }
 
 template <class T>
 double fnorm(int32_t M, int32_t N, const T* A, int32_t lda) {
-  if (M <= 0 || N <= 0) return 0.;
-  if constexpr(std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, __half2>) {
-    std::vector<std::complex<double>> matA(M * N);
-    copy2d(M, N, A, lda, &matA[0], M);
-    return std::transform_reduce(matA.begin(), matA.end(), 0., std::plus<double>(), [](auto i) { return std::norm(i); });
-  }
-  else {
-    std::vector<double> matA(M * N);
-    copy2d(M, N, A, lda, &matA[0], M);
-    return std::transform_reduce(matA.begin(), matA.end(), 0., std::plus<double>(), [](auto i) { return std::norm(i); });
-  }
+  if (M <= 0 || N <= 0) { return 0.; }
+  constexpr int32_t Complex = std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, __half2>;
+  using type = typename std::conditional<Complex, std::complex<double>, double>::type;
+  std::vector<type> matA(M * N);
+  copy2d(M, N, A, lda, &matA[0], M);
+  return std::transform_reduce(matA.begin(), matA.end(), 0., std::plus<double>(), [](auto i) { return std::norm(i); });
 }
 
 template <class T>

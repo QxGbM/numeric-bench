@@ -18,6 +18,23 @@ void make_2D_oscillatory(double w, int32_t sep, int32_t M, int32_t N, std::compl
   }
 }
 
+template <class T>
+double check_answer_lra(int32_t rank, int32_t M, int32_t N, const T* A, int32_t lda, const int32_t* jpiv, const T* R, int32_t ldr) {
+  if (rank <= 0 || M <= 0 || N <= 0) { return 0.; }
+  constexpr int32_t Complex = std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, __half2>;
+  using type = typename std::conditional<Complex, std::complex<double>, double>::type;
+  std::vector<type> matB(int64_t(M) * int64_t(N)), matC(int64_t(M) * int64_t(rank)), matR(int64_t(rank) * int64_t(N));
+  for (int32_t i = 0; i < rank; ++i)
+    copy2d(M, 1, &A[int64_t(jpiv[i] - 1) * int64_t(lda)], lda, &matC[int64_t(i) * int64_t(M)], M);
+  for (int32_t i = 0; i < N; ++i)
+    copy2d(1, rank, &R[int64_t(i) * int64_t(ldr)], 1, &matR[jpiv[i] - 1], N);
+  copy2d(M, N, A, lda, &matB[0], M);
+  if constexpr(Complex) { for (std::complex<double>& f : matR) { f = std::conj(f); }}
+  nngemm(M, N, rank, &matC[0], M, &matR[0], N, &matB[0], M);
+  double err = std::transform_reduce(matB.begin(), matB.end(), 0., std::plus<double>(), [](auto i) { return std::norm(i); });
+  return err;
+}
+
 int32_t main(int32_t argc, char* argv[]) {
   auto cu_err = cudaSetDevice(0);
   if (cu_err != cudaSuccess)
@@ -56,35 +73,19 @@ int32_t main(int32_t argc, char* argv[]) {
 
   magma_zgeqp3_gpu(M, N, dA, M, jpvt.data(), tau.data(), dC, Lwork, dR, &info);
   cudaStreamSynchronize(stream);
+
   cudaMemcpy(&matB[0], dA, M * N * sizeof(std::complex<double>), cudaMemcpyDeviceToHost);
-
   double s0 = epi * std::abs(matB[0].real());
-  int64_t rank = 0;
-  while (rank < N && s0 <= std::abs(matB[rank * (M + 1)].real())) { ++rank; }
-
-  for (int64_t i = 0; i < rank; ++i) {
-    int64_t col = jpvt[i] - 1;
-    cudaMemcpy(&dB[i * M], &matA[col * M], M * sizeof(std::complex<double>), cudaMemcpyHostToDevice);
-  }
+  int64_t rank = 0; while (rank < N && s0 <= std::abs(matB[rank * (M + 1)].real())) { ++rank; }
 
   union { std::complex<double> std; magmaDoubleComplex magma; } one{std::complex<double>(1., 0.)}, zero{std::complex<double>(0., 0.)};
   cublasZtrsm(cublasH, CUBLAS_SIDE_LEFT, CUBLAS_FILL_MODE_UPPER, CUBLAS_OP_N, CUBLAS_DIAG_NON_UNIT, rank, N - rank, (cuDoubleComplex*)&one, dA, M, &dA[rank * M], M);
   magmablas_zlaset(MagmaFull, rank, rank, zero.magma, one.magma, dA, M, queue);
   cudaStreamSynchronize(stream);
 
-  for (int64_t i = 0; i < N; ++i) {
-    int64_t col = jpvt[i] - 1;
-    cudaMemcpy(&dC[col * M], &dA[i * M], rank * sizeof(std::complex<double>), cudaMemcpyDeviceToDevice);
-  }
-  cudaMemcpy(dA, &matA[0], M * N * sizeof(std::complex<double>), cudaMemcpyHostToDevice);
-
-  std::complex<double> minus_one(-1., 0.);
-  double nrm = 0., err = 0.;
-  cublasDznrm2_64(cublasH, M * N, dA, int64_t(1), &nrm);
-  cublasZgemm(cublasH, CUBLAS_OP_N, CUBLAS_OP_N, M, N, rank, (cuDoubleComplex*)&minus_one, (const cuDoubleComplex*)dB, M, (const cuDoubleComplex*)dC, M, (cuDoubleComplex*)&one, (cuDoubleComplex*)dA, M);
-  cublasDznrm2_64(cublasH, M * N, dA, int64_t(1), &err);
-  cudaStreamSynchronize(stream);
-  err = err / nrm;
+  cudaMemcpy(&matB[0], dA, M * N * sizeof(std::complex<double>), cudaMemcpyDeviceToHost);
+  double nrm = fnorm(M, N, &matA[0], M);
+  double err = nrm == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(check_answer_lra(rank, M, N, matA.data(), M, jpvt.data(), matB.data(), M) / nrm);
 
   cudaMemcpy(dA, &matA[0], M * N * sizeof(std::complex<double>), cudaMemcpyHostToDevice);
   std::fill(jpvt.begin(), jpvt.end(), 0);

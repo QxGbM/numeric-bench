@@ -22,25 +22,16 @@ template <class T> void make_2D_oscillatory(double w, int32_t sep, int32_t M, in
 
 template <class T>
 double check_answer_lra(int32_t rank, int32_t M, int32_t N, const T* A, int32_t lda, const int32_t* jpiv, const T* R, int32_t ldr) {
-  if (rank <= 0 || M <= 0 || N <= 0) return std::numeric_limits<double>::quiet_NaN();
-  if constexpr(std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, __half2>) {
-    std::vector<std::complex<double>> matB(int64_t(M) * int64_t(N)), matC(int64_t(M) * int64_t(rank)), matR(int64_t(rank) * int64_t(N));
-    for (int32_t i = 0; i < rank; ++i)
-      copy2d(M, 1, &A[int64_t(jpiv[i] - 1) * int64_t(lda)], lda, &matC[int64_t(i) * int64_t(M)], M);
-    copy2d(M, N, A, lda, &matB[0], M); copy2d(N, rank, R, ldr, &matR[0], N);
-    nngemm(M, N, rank, &matC[0], M, &matR[0], N, &matB[0], M);
-    double err = std::transform_reduce(matB.begin(), matB.end(), 0., std::plus<double>(), [](auto i) { return std::norm(i); });
-    return err;
-  }
-  else {
-    std::vector<double> matB(int64_t(M) * int64_t(N)), matC(int64_t(M) * int64_t(rank)), matR(int64_t(rank) * int64_t(N));
-    for (int32_t i = 0; i < rank; ++i)
-      copy2d(M, 1, &A[int64_t(jpiv[i] - 1) * int64_t(lda)], lda, &matC[int64_t(i) * int64_t(M)], M);
-    copy2d(M, N, A, lda, &matB[0], M); copy2d(N, rank, R, ldr, &matR[0], N);
-    nngemm(M, N, rank, &matC[0], M, &matR[0], N, &matB[0], M);
-    double err = std::transform_reduce(matB.begin(), matB.end(), 0., std::plus<double>(), [](auto i) { return std::norm(i); });
-    return err;
-  }
+  if (rank <= 0 || M <= 0 || N <= 0) { return 0.; }
+  constexpr int32_t Complex = std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, __half2>;
+  using type = typename std::conditional<Complex, std::complex<double>, double>::type;
+  std::vector<type> matB(int64_t(M) * int64_t(N)), matC(int64_t(M) * int64_t(rank)), matR(int64_t(rank) * int64_t(N));
+  for (int32_t i = 0; i < rank; ++i)
+    copy2d(M, 1, &A[int64_t(jpiv[i] - 1) * int64_t(lda)], lda, &matC[int64_t(i) * int64_t(M)], M);
+  copy2d(M, N, A, lda, &matB[0], M); copy2d(N, rank, R, ldr, &matR[0], N);
+  nngemm(M, N, rank, &matC[0], M, &matR[0], N, &matB[0], M);
+  double err = std::transform_reduce(matB.begin(), matB.end(), 0., std::plus<double>(), [](auto i) { return std::norm(i); });
+  return err;
 }
 
 template <class T>
@@ -50,7 +41,6 @@ int32_t id_hyac(hyacinHandle_t handle, double epi, int32_t M, int32_t N, int32_t
   cudaMallocAsync((void**)&vexp, uint64_t(N) * sizeof(int32_t), handle.cudaStream);
   hyacinXGautoType(epi, u_corr, g_corr, M, N, Atype, &u, &cPanels, &lPanels, &strideC, &Gtype, &gElemBytes);
   hyacinXquantizeScale(handle, M, N, Atype, A, lda, u, 0, vexp);
-  hyacinAllReduceVExp(handle, uint64_t(N), vexp);
 
   uint64_t* C = nullptr; cudaMallocAsync((void**)&C, uint64_t(cPanels) * uint64_t(lPanels) * strideC * sizeof(uint64_t), handle.cudaStream);
   void* param = hyacinXherkBatchCreate(handle, algo, epi, u_corr, batchK, N, Atype);
