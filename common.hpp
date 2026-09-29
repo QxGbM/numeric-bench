@@ -181,12 +181,12 @@ int32_t svd_fit_transform(hyacinHandle_t handle, char algo, char use_evd, double
   int32_t M, int32_t gM, int32_t N, int32_t K, const T* A, int32_t lda, T* U, int32_t ldu, R* S, T* V, int32_t ldv, int32_t Mv, int32_t Nv = 0, int32_t lcol_offset = 0) {
   hyacinPrecision_t Atype = __precA<T>(), Gtype;
   int32_t* vexp = nullptr, u, cPanels, lPanels, gElemBytes; uint64_t strideC;
-  cudaMallocAsync((void**)&vexp, uint64_t(N) * sizeof(int32_t), handle.cudaStream);
+  cudaMallocFromPoolAsync((void**)&vexp, uint64_t(N) * sizeof(int32_t), handle.mempool, handle.cudaStream);
   hyacinXGautoType(epi, u_corr, g_corr, gM, N, Atype, &u, &cPanels, &lPanels, &strideC, &Gtype, &gElemBytes);
   hyacinXquantizeScale(handle, M, N, Atype, A, lda, u, 0, vexp);
   hyacinAllReduceVExp(handle, uint64_t(N), vexp);
 
-  uint64_t* C = nullptr; cudaMallocAsync((void**)&C, uint64_t(cPanels) * uint64_t(lPanels) * strideC * sizeof(uint64_t), handle.cudaStream);
+  uint64_t* C = nullptr; cudaMallocFromPoolAsync((void**)&C, uint64_t(cPanels) * uint64_t(lPanels) * strideC * sizeof(uint64_t), handle.mempool, handle.cudaStream);
   void* param = hyacinXherkBatchCreate(handle, algo, epi, u_corr, batchK, N, Atype);
 
   int32_t beta = 0, iter = param ? batchIter : M; u = param ? HYACIN_QUERY_U : u;
@@ -196,11 +196,11 @@ int32_t svd_fit_transform(hyacinHandle_t handle, char algo, char use_evd, double
   hyacinXherkBatchDestroy(handle, param);
   hyacinAllReduce1Drow(handle, cPanels, lPanels, strideC, C);
 
-  void* G = nullptr; cudaMallocAsync((void**)&G, uint64_t(N) * uint64_t(N) * uint64_t(gElemBytes), handle.cudaStream);
+  void* G = nullptr; cudaMallocFromPoolAsync((void**)&G, uint64_t(N) * uint64_t(N) * uint64_t(gElemBytes), handle.mempool, handle.cudaStream);
   hyacinXdequantize(handle, N, lPanels, C, vexp, Gtype, G, N);
   cudaFreeAsync(vexp, handle.cudaStream); cudaFreeAsync(C, handle.cudaStream);
 
-  T* X = nullptr; cudaMallocAsync((void**)&X, uint64_t(N) * uint64_t(K) * sizeof(T), handle.cudaStream);
+  T* X = nullptr; cudaMallocFromPoolAsync((void**)&X, uint64_t(N) * uint64_t(K) * sizeof(T), handle.mempool, handle.cudaStream);
   int32_t rank = hyacinXGevPcsvd(handle, use_evd, 'A', epi, N, K, oversampling, Atype, X, N, S, Gtype, G, N);
   cudaFreeAsync(G, handle.cudaStream);
   hyacinXtransform(handle, M, N, rank, Atype, A, lda, U, ldu, X, N);

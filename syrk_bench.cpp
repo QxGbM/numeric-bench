@@ -21,11 +21,11 @@ template <class T>
 void syrk_hyac(hyacinHandle_t handle, char algo, double epi, int32_t u_corr, int32_t batchK, int32_t batchIter, int32_t M, int32_t N, const T* A, int32_t lda, T* R, int32_t ldr) {
   hyacinPrecision_t Atype = __precA<T>();
   int32_t* vexp = nullptr, u, cPanels, lPanels; uint64_t strideC;
-  cudaMallocAsync((void**)&vexp, uint64_t(N) * sizeof(int32_t), handle.cudaStream);
+  cudaMallocFromPoolAsync((void**)&vexp, uint64_t(N) * sizeof(int32_t), handle.mempool, handle.cudaStream);
   hyacinXGautoType(epi, u_corr, 0, M, N, Atype, &u, &cPanels, &lPanels, &strideC, nullptr, nullptr);
   hyacinXquantizeScale(handle, M, N, Atype, A, lda, u, 0, vexp);
 
-  uint64_t* C = nullptr; cudaMallocAsync((void**)&C, uint64_t(cPanels) * uint64_t(lPanels) * strideC * sizeof(uint64_t), handle.cudaStream);
+  uint64_t* C = nullptr; cudaMallocFromPoolAsync((void**)&C, uint64_t(cPanels) * uint64_t(lPanels) * strideC * sizeof(uint64_t), handle.mempool, handle.cudaStream);
   void* param = hyacinXherkBatchCreate(handle, algo, epi, u_corr, batchK, N, Atype);
 
   int32_t beta = 0, iter = param ? batchIter : M; u = param ? HYACIN_QUERY_U : u;

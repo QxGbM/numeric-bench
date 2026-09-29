@@ -39,11 +39,11 @@ int32_t id_hyac(hyacinHandle_t handle, char algo, double epi, int32_t u_corr, in
   int32_t M, int32_t N, int32_t K, const T* A, int32_t lda, int32_t* jpiv, T* R, int32_t ldr) {
   hyacinPrecision_t Atype = __precA<T>(), Gtype;
   int32_t* vexp = nullptr, u, cPanels, lPanels, gElemBytes; uint64_t strideC;
-  cudaMallocAsync((void**)&vexp, uint64_t(N) * sizeof(int32_t), handle.cudaStream);
+  cudaMallocFromPoolAsync((void**)&vexp, uint64_t(N) * sizeof(int32_t), handle.mempool, handle.cudaStream);
   hyacinXGautoType(epi, u_corr, g_corr, M, N, Atype, &u, &cPanels, &lPanels, &strideC, &Gtype, &gElemBytes);
   hyacinXquantizeScale(handle, M, N, Atype, A, lda, u, 0, vexp);
 
-  uint64_t* C = nullptr; cudaMallocAsync((void**)&C, uint64_t(cPanels) * uint64_t(lPanels) * strideC * sizeof(uint64_t), handle.cudaStream);
+  uint64_t* C = nullptr; cudaMallocFromPoolAsync((void**)&C, uint64_t(cPanels) * uint64_t(lPanels) * strideC * sizeof(uint64_t), handle.mempool, handle.cudaStream);
   void* param = hyacinXherkBatchCreate(handle, algo, epi, u_corr, batchK, N, Atype);
 
   int32_t beta = 0, iter = param ? batchIter : M; u = param ? HYACIN_QUERY_U : u;
@@ -52,11 +52,11 @@ int32_t id_hyac(hyacinHandle_t handle, char algo, double epi, int32_t u_corr, in
   hyacinXherkBatchFlush(handle, N, Atype, vexp, beta, lPanels, C, param);
   hyacinXherkBatchDestroy(handle, param);
 
-  void* G = nullptr; cudaMallocAsync((void**)&G, uint64_t(N) * uint64_t(N) * uint64_t(gElemBytes), handle.cudaStream);
+  void* G = nullptr; cudaMallocFromPoolAsync((void**)&G, uint64_t(N) * uint64_t(N) * uint64_t(gElemBytes), handle.mempool, handle.cudaStream);
   hyacinXdequantize(handle, N, lPanels, C, vexp, Gtype, G, N);
   cudaFreeAsync(vexp, handle.cudaStream); cudaFreeAsync(C, handle.cudaStream);
 
-  int32_t* piv = nullptr; cudaMallocAsync((void**)&piv, uint64_t(N) * sizeof(int32_t), handle.cudaStream);
+  int32_t* piv = nullptr; cudaMallocFromPoolAsync((void**)&piv, uint64_t(N) * sizeof(int32_t), handle.mempool, handle.cudaStream);
   int32_t rank = hyacinXGinterp(handle, 'A', epi, N, K, oversampling, Atype, R, ldr, (int32_t*)piv, Gtype, G, N);
   cudaMemcpyAsync(jpiv, piv, int64_t(N) * sizeof(int32_t), cudaMemcpyDefault, handle.cudaStream);
   cudaFreeAsync(G, handle.cudaStream); cudaFreeAsync(piv, handle.cudaStream);
