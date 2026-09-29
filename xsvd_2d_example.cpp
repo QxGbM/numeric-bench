@@ -15,7 +15,7 @@ template <class T, class R> inline void run(char prec, char algo, char use_evd, 
   if (!file.empty())
     matrix_from_row_major_csv(gM, gN, mb, nb, matA.data(), lM, file, grid_row, grid_col, tile_m, tile_n);
   else
-    matrix_generator<T>(gM, gN).generate_block(1., mb, nb, &matA[0], lM, grid_row, grid_col, tile_m, tile_n);
+    matrix_generator<T>(1., gM, gN).generate_block(mb, nb, &matA[0], lM, grid_row, grid_col, tile_m, tile_n);
 
   /* Timed region start */
   auto host_start = std::chrono::high_resolution_clock::now();
@@ -108,8 +108,8 @@ int32_t main(int32_t argc, char* argv[]) {
   gN = std::min(gM, gN); K = std::min(gN, K);
 
   int32_t world_rank, world_size, local_rank; ncclUniqueId id;
-  //__bootstrap_mpi(world_rank, world_size, local_rank, id);
-  __bootstrap_posix_fork(local_rank, world_size, id); world_rank = local_rank;
+  //bootstrap_mpi(world_rank, local_rank, world_size, id);
+  bootstrap_posix_fork(world_rank, local_rank, world_size, id);
 
   if (world_size != tile_m * tile_n)
   { if (world_rank == 0) std::cerr << "Incorrect process grid launch configuration." << std::endl; return -1; }

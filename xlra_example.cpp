@@ -69,7 +69,7 @@ int32_t id_hyac(hyacinHandle_t handle, char algo, double epi, int32_t u_corr, in
 template <class T> inline void run(char prec, char algo, double epi, int32_t u_corr, int32_t g_corr, int32_t oversampling, int32_t batchK, int32_t batchIter, int64_t M, int64_t N) {
   std::vector<T> matA(M * N);
   std::vector<int32_t> ipiv(N);
-  matrix_generator<T>(M, N).generate_block(1., 512, 512, &matA[0], M);
+  matrix_generator<T>(1., M, N).generate_block(512, 512, &matA[0], M);
   //make_2D_oscillatory(1., 0, M, N, &matA[0], M);
 
   /* Timed region start */

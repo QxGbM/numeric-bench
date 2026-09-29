@@ -58,7 +58,7 @@ int32_t main(int32_t argc, char* argv[]) {
   std::vector<magma_int_t> jpvt(N, 0);
 
   std::vector<std::complex<double>> matA(M * N), matB(M * N);
-  matrix_generator<std::complex<double>>(M, N).generate_block(1., 512, 512, &matA[0], M);
+  matrix_generator<std::complex<double>>(1., M, N).generate_block(512, 512, &matA[0], M);
   
   cudaMalloc((void**)&dA, M * N * sizeof(std::complex<double>));
   cudaMalloc((void**)&dB, M * N * sizeof(std::complex<double>));

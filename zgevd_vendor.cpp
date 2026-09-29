@@ -17,8 +17,8 @@ int32_t main(int32_t argc, char* argv[]) {
   N = std::min(gM, N); K = std::min(N, K);
 
   int32_t world_rank, world_size, local_rank; ncclUniqueId id;
-  //__bootstrap_mpi(world_rank, world_size, local_rank, id);
-  __bootstrap_posix_fork(local_rank, world_size, id); world_rank = local_rank;
+  //bootstrap_mpi(world_rank, local_rank, world_size, id);
+  bootstrap_posix_fork(world_rank, local_rank, world_size, id);
 
   int32_t device_count = 0; cudaGetDeviceCount(&device_count);
   auto cu_err = cudaSetDevice(1 < device_count ? local_rank : 0);
@@ -34,7 +34,7 @@ int32_t main(int32_t argc, char* argv[]) {
   if (!file.empty())
     matrix_from_row_major_csv(gM, N, mb, 512, matA.data(), lM, file, grid_row, 0, tile_m, 1);
   else
-    matrix_generator<std::complex<double>>(gM, N).generate_block(1., mb, 512, &matA[0], lM, grid_row, 0, tile_m, 1);
+    matrix_generator<std::complex<double>>(1., gM, N).generate_block(mb, 512, &matA[0], lM, grid_row, 0, tile_m, 1);
 
   std::complex<double>* d_A = nullptr, *d_V = nullptr, *d_B = nullptr; double* d_S = nullptr;
   void* evd_work_device = nullptr, *evd_work_host = nullptr;

@@ -8,7 +8,7 @@ template <class T, class R> inline void run(char prec, char algo, char use_evd, 
   if (!file.empty())
     matrix_from_row_major_csv(M, N, 512, 512, matA.data(), M, file);
   else
-    matrix_generator<T>(M, N).generate_block(1., 512, 512, &matA[0], M);
+    matrix_generator<T>(1., M, N).generate_block(512, 512, &matA[0], M);
 
   /* Timed region start */
   auto host_start = std::chrono::high_resolution_clock::now();

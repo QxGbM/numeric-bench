@@ -43,7 +43,7 @@ void syrk_hyac(hyacinHandle_t handle, char algo, double epi, int32_t u_corr, int
 
 template <class T> inline void run(char prec, char algo, double epi, int32_t u_corr, int32_t batchK, int32_t batchIter, int64_t M, int64_t N) {
   std::vector<T> matA(M * N);
-  matrix_generator<T>(M, N).generate_block(1., 512, 512, &matA[0], M);
+  matrix_generator<T>(1., M, N).generate_block(512, 512, &matA[0], M);
 
   /* Timed region start */
   auto host_start = std::chrono::high_resolution_clock::now();

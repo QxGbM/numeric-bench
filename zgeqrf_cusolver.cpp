@@ -25,7 +25,7 @@ int32_t main(int32_t argc, char* argv[]) {
   int64_t N = 2 < argc ? std::atoi(argv[2]) : 128;
 
   std::vector<std::complex<double>> matA(M * N);
-  matrix_generator<std::complex<double>>(M, N).generate_block(1., 512, 512, &matA[0], M);
+  matrix_generator<std::complex<double>>(1., M, N).generate_block(512, 512, &matA[0], M);
 
   std::complex<double>* dA = nullptr, * dTau = nullptr;
   int32_t* info = nullptr;

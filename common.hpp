@@ -99,7 +99,8 @@ void write_matrix_to_csv(int32_t M, int32_t N, const T* A, int32_t lda, const st
 template <class T> struct matrix_generator {
   int64_t gM, gN;
   std::vector<double> bodies;
-  matrix_generator(int64_t M, int64_t N) : gM(M), gN(N), bodies(int64_t(3) * (M + N)) {
+  const double w;
+  matrix_generator(double w, int64_t M, int64_t N) : gM(M), gN(N), bodies(int64_t(3) * (M + N)), w(w) {
     int64_t nbodies = M + N;
     const double phi = 2.39996322972865332223;  // golden angle in radians
     for (int64_t i = 0; i < nbodies; ++i) {
@@ -112,7 +113,12 @@ template <class T> struct matrix_generator {
     }
   }
 
-  void generate_block(double w, int32_t mb, int32_t nb, T* A, int32_t lda, int32_t grid_row = 0, int32_t grid_col = 0, int32_t tile_m = 1, int32_t tile_n = 1) {
+  inline double eval_real(double d) { return std::cos(w * d) / d; }
+  inline std::complex<double> eval_complex(double d) { return std::complex<double>(eval_real(d), std::sin(-w * d) / d); }
+  //inline double eval_real(double d) { return std::exp((-d * d) / w); }
+  //inline std::complex<double> eval_complex(double d) { return std::complex<double>(eval_real(d), 0.); }
+  
+  void generate_block(int32_t mb, int32_t nb, T* A, int32_t lda, int32_t grid_row = 0, int32_t grid_col = 0, int32_t tile_m = 1, int32_t tile_n = 1) {
     int64_t row_offset = int64_t(grid_row) * int64_t(mb), col_offset = int64_t(grid_col) * int64_t(nb);
     for (int64_t iA = row_offset, y = 0; iA < gM; iA = row_offset + int64_t(tile_m) * (y += int64_t(mb))) {
       int64_t rows = std::min(gM - iA, int64_t(mb));
@@ -129,7 +135,7 @@ template <class T> struct matrix_generator {
             double d = std::sqrt(diff_x * diff_x + diff_y * diff_y + diff_z * diff_z);
             int64_t k = (i + y) + (j + x) * int64_t(lda);
             if constexpr(std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, __half2>)
-            { A[k] = conv<T>(std::complex<double>(std::cos(w * d) / d, std::sin(-w * d) / d)); } else { A[k] = T(std::cos(w * d) / d); }
+            { A[k] = conv<T>(eval_complex(d)); } else { A[k] = T(eval_real(d)); }
           }
         }
       }
@@ -216,7 +222,7 @@ int32_t svd_fit_transform(hyacinHandle_t handle, char algo, char use_evd, double
 #ifndef BOOTSTRAP_NO_POSIX
 #include <unistd.h>
 
-void __bootstrap_posix_fork(int32_t& local_rank, int32_t& world_size, ncclUniqueId& id) {
+void bootstrap_posix_fork(int32_t& world_rank, int32_t& local_rank, int32_t& world_size, ncclUniqueId& id) {
   const char* devices = std::getenv("CUDA_VISIBLE_DEVICES");
   if (devices == nullptr) { throw std::runtime_error("CUDA_VISIBLE_DEVICES is unset"); }
   if (devices[0] == '\0') { throw std::runtime_error("No CUDA device visible"); }
@@ -230,14 +236,14 @@ void __bootstrap_posix_fork(int32_t& local_rank, int32_t& world_size, ncclUnique
     if (pid == -1) { throw std::runtime_error("POSIX Fork Failure"); }
     rank = pid ? 0 : i;
   }
-  local_rank = rank;
+  world_rank = local_rank = rank;
 }
 
 #endif
 #ifndef BOOTSTRAP_NO_MPI
 #include <mpi.h>
 
-void __bootstrap_mpi(int32_t& world_rank, int32_t& world_size, int32_t& local_rank, ncclUniqueId& id) {
+void bootstrap_mpi(int32_t& world_rank, int32_t& local_rank, int32_t& world_size, ncclUniqueId& id) {
   MPI_Init(nullptr, nullptr);
   MPI_Comm shmcomm; MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, &shmcomm);
   MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
