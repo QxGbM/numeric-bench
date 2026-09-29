@@ -3,7 +3,8 @@
 #include <iostream>
 #include <chrono>
 
-template <class T, class R> inline void run(char prec, int64_t gM, int64_t N, int64_t K, int64_t mb, char algo, double epi, int32_t grid_row, int32_t tile_m, ncclUniqueId id, const std::string& file) {
+template <class T, class R> inline void run(char prec, char algo, char use_evd, double epi, int32_t u_corr, int32_t g_corr, int32_t oversampling, int32_t batchK, int32_t batchIter,
+  int64_t gM, int64_t N, int64_t K, int64_t mb, int32_t grid_row, int32_t tile_m, ncclUniqueId id, const std::string& file) {
   int64_t lM = mb * (gM / (mb * tile_m));
   lM += std::max(int64_t(0), std::min(mb, gM - lM * tile_m - mb * grid_row));
 
@@ -30,7 +31,7 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t N, in
   hyacinCreate2D(&handle, comm, nullptr, 1);
 
   int32_t* d_barrier = nullptr; cudaMalloc((void**)(&d_barrier), 5 * sizeof(double));
-  int32_t rank = svd_fit_transform(handle, algo, epi, lM, gM, N, K, d_A, lM, d_U, lM, d_S, d_V, N, N);
+  int32_t rank = svd_fit_transform(handle, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, lM, gM, N, K, d_A, lM, d_U, lM, d_S, d_V, N, N);
 
   std::vector<T> matU(lM * K), matV(K * N);
   cudaMemcpy(matU.data(), d_U, lM * K * sizeof(T), cudaMemcpyDeviceToHost);
@@ -41,7 +42,7 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t N, in
   kernel_time = rep_time = comm_time = 0.;
 
   for (int32_t i = 0; i < kernel_runs; ++i)
-    rank = svd_fit_transform(handle, algo, epi, lM, gM, N, K, d_A, lM, d_U, lM, d_S, d_V, N, N);
+    rank = svd_fit_transform(handle, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, lM, gM, N, K, d_A, lM, d_U, lM, d_S, d_V, N, N);
 
   double ret[5]{ kernel_time, rep_time, comm_time, check_answer_svd(lM, N, rank, &matU[0], lM, &matV[0], N, &matA[0], lM), fnorm(lM, N, &matA[0], lM) };
   cudaMemcpy(d_barrier, ret, 5 * sizeof(double), cudaMemcpyHostToDevice);
@@ -67,8 +68,8 @@ template <class T, class R> inline void run(char prec, int64_t gM, int64_t N, in
 }
 
 int32_t main(int32_t argc, char* argv[]) {
-  char prec = 'D', algo = 'A'; std::string file;
-  int64_t gM = 2048, N = 2048, K = 2048, mb = 512;
+  char prec = 'D', algo = 'A', use_evd = 'A'; std::string file;
+  int64_t gM = 2048, N = 2048, K = 2048, mb = 512; int32_t u_corr = 6, g_corr = -5, oversampling = 10, batchK = 65536, batchIter = 2048;
   double epi = 1.e-12;
 
   for (int32_t i = 1; i < argc; ++i) {
@@ -80,6 +81,12 @@ int32_t main(int32_t argc, char* argv[]) {
     else if (std::strncmp(argv[i], "mb=", 3) == 0) { std::sscanf(argv[i], "mb=%ld", &mb); }
     else if (std::strncmp(argv[i], "file=", 5) == 0) { file.resize(std::strlen(argv[i])); std::sscanf(argv[i], "file=%s", file.data()); }
     else if (std::strncmp(argv[i], "algo=", 5) == 0) { std::sscanf(argv[i], "algo=%c", &algo); }
+    else if (std::strncmp(argv[i], "evd=", 4) == 0) { std::sscanf(argv[i], "evd=%c", &use_evd); }
+    else if (std::strncmp(argv[i], "u_corr=", 7) == 0) { std::sscanf(argv[i], "u_corr=%d", &u_corr); }
+    else if (std::strncmp(argv[i], "g_corr=", 7) == 0) { std::sscanf(argv[i], "g_corr=%d", &g_corr); }
+    else if (std::strncmp(argv[i], "p=", 2) == 0) { std::sscanf(argv[i], "p=%d", &oversampling); }
+    else if (std::strncmp(argv[i], "batchK=", 7) == 0) { std::sscanf(argv[i], "batchK=%d", &batchK); }
+    else if (std::strncmp(argv[i], "batchIter=", 10) == 0) { std::sscanf(argv[i], "batchIter=%d", &batchIter); }
     else { std::cerr << "Ignored parameter: " << argv[i] << std::endl; }
   }
   N = std::min(gM, N); K = std::min(N, K);
@@ -95,10 +102,12 @@ int32_t main(int32_t argc, char* argv[]) {
   { std::cerr << cudaGetErrorString(cu_err) << std::endl; return -1; }
 
   switch(prec) {
-    case 'D': run<double, double>(prec, gM, N, K, mb, algo, epi, world_rank, world_size, id, file); break;
-    case 'S': run<float, float>(prec, gM, N, K, mb, algo, epi, world_rank, world_size, id, file); break;
-    case 'Z': run<std::complex<double>, double>(prec, gM, N, K, mb, algo, epi, world_rank, world_size, id, file); break;
-    case 'C': run<std::complex<float>, float>(prec, gM, N, K, mb, algo, epi, world_rank, world_size, id, file); break;
+    case 'D': run<double, double>(prec, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
+    case 'S': run<float, float>(prec, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
+    case 'H': run<__half, __half>(prec, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
+    case 'Z': run<std::complex<double>, double>(prec, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
+    case 'C': run<std::complex<float>, float>(prec, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
+    case 'J': run<__half2, __half>(prec, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
     default: break;
   }
 

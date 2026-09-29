@@ -14,12 +14,7 @@
 #include <cuda_fp16.h>
 
 using blas_int = int; // LP64 for blas
-const int32_t batchK = 65536, batchIter = 2048;
-const int32_t oversampling = 10; // increase for better LRA accuracy
-const int32_t u_corr = 6; // increase for better Quantization accuracy
-const int32_t g_corr = -5; // increase for higher Fp-Gram accuracy
 const int32_t kernel_runs = 3;
-const char use_evd = 'A';
 double kernel_time = 0., rep_time = 0., comm_time = 0.;
 
 template <class T, class S> inline T conv(S x) {
@@ -173,19 +168,6 @@ double fnorm(int32_t M, int32_t N, const T* A, int32_t lda) {
   return std::transform_reduce(matA.begin(), matA.end(), 0., std::plus<double>(), [](auto i) { return std::norm(i); });
 }
 
-template <class T>
-double max_elementwise_relerr(int32_t M, int32_t N, const T* ref, int32_t ldr, const T* test, int32_t ldt) {
-  if (M <= 0 || N <= 0) return std::numeric_limits<double>::quiet_NaN();
-  double rel_err = 0.;
-  for (int32_t j = 0; j < N; ++j)
-    for (int32_t i = 0; i < M; ++i) {
-      double r = double(std::norm(ref[int64_t(i) + int64_t(j) * int64_t(ldr)]));
-      double e = double(std::norm(test[int64_t(i) + int64_t(j) * int64_t(ldt)] - ref[int64_t(i) + int64_t(j) * int64_t(ldr)]));
-      rel_err = std::max(rel_err, (e / (r == 0. ? 1. : r)));
-    }
-  return rel_err;
-}
-
 template <class T> inline hyacinPrecision_t __precA();
 template <> inline hyacinPrecision_t __precA<double>() { return HYACIN_F64; };
 template <> inline hyacinPrecision_t __precA<float>() { return HYACIN_F32; };
@@ -195,7 +177,7 @@ template <> inline hyacinPrecision_t __precA<std::complex<float>>() { return HYA
 template <> inline hyacinPrecision_t __precA<__half2>() { return HYACIN_F16_COMPLEX; };
 
 template <class T, class R>
-int32_t svd_fit_transform(hyacinHandle_t handle, char algo, double epi,
+int32_t svd_fit_transform(hyacinHandle_t handle, char algo, char use_evd, double epi, int32_t u_corr, int32_t g_corr, int32_t oversampling, int32_t batchK, int32_t batchIter,
   int32_t M, int32_t gM, int32_t N, int32_t K, const T* A, int32_t lda, T* U, int32_t ldu, R* S, T* V, int32_t ldv, int32_t Mv, int32_t Nv = 0, int32_t lcol_offset = 0) {
   hyacinPrecision_t Atype = __precA<T>(), Gtype;
   int32_t* vexp = nullptr, u, cPanels, lPanels, gElemBytes; uint64_t strideC;

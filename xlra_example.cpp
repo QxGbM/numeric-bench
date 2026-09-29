@@ -35,7 +35,8 @@ double check_answer_lra(int32_t rank, int32_t M, int32_t N, const T* A, int32_t 
 }
 
 template <class T>
-int32_t id_hyac(hyacinHandle_t handle, double epi, int32_t M, int32_t N, int32_t K, const T* A, int32_t lda, int32_t* jpiv, T* R, int32_t ldr, char algo) {
+int32_t id_hyac(hyacinHandle_t handle, char algo, double epi, int32_t u_corr, int32_t g_corr, int32_t oversampling, int32_t batchK, int32_t batchIter,
+  int32_t M, int32_t N, int32_t K, const T* A, int32_t lda, int32_t* jpiv, T* R, int32_t ldr) {
   hyacinPrecision_t Atype = __precA<T>(), Gtype;
   int32_t* vexp = nullptr, u, cPanels, lPanels, gElemBytes; uint64_t strideC;
   cudaMallocAsync((void**)&vexp, uint64_t(N) * sizeof(int32_t), handle.cudaStream);
@@ -60,12 +61,12 @@ int32_t id_hyac(hyacinHandle_t handle, double epi, int32_t M, int32_t N, int32_t
   cudaMemcpyAsync(jpiv, piv, int64_t(N) * sizeof(int32_t), cudaMemcpyDefault, handle.cudaStream);
   cudaFreeAsync(G, handle.cudaStream); cudaFreeAsync(piv, handle.cudaStream);
 
-  double eventMs[3]{ 'D', 'R', 'C' }; hyacinSync_TimerSegments(handle, eventMs, 3);
-  kernel_time += eventMs[0] + eventMs[1] + eventMs[2]; rep_time += eventMs[1]; comm_time += eventMs[2];
+  double eventMs[2]{ 'D', 'R' }; hyacinSync_TimerSegments(handle, eventMs, 2);
+  kernel_time += eventMs[0] + eventMs[1];
   return rank;
 }
 
-template <class T> inline void run(char prec, int64_t M, int64_t N, double epi, char algo) {
+template <class T> inline void run(char prec, char algo, double epi, int32_t u_corr, int32_t g_corr, int32_t oversampling, int32_t batchK, int32_t batchIter, int64_t M, int64_t N) {
   std::vector<T> matA(M * N);
   std::vector<int32_t> ipiv(N);
   matrix_generator<T>(M, N).generate_block(1., 512, 512, &matA[0], M);
@@ -82,7 +83,7 @@ template <class T> inline void run(char prec, int64_t M, int64_t N, double epi, 
   hyacinHandle_t handle;
   hyacinCreate(&handle, 1);
 
-  int32_t rank = id_hyac(handle, epi, M, N, N, d_A, M, ipiv.data(), d_X, N, algo);
+  int32_t rank = id_hyac(handle, algo, epi, u_corr, g_corr, oversampling, batchK, batchIter, M, N, N, d_A, M, ipiv.data(), d_X, N);
   cudaStreamSynchronize(handle.cudaStream);
 
   std::vector<T> matX(N * N);
@@ -95,7 +96,7 @@ template <class T> inline void run(char prec, int64_t M, int64_t N, double epi, 
   kernel_time = 0.;
 
   for (int32_t i = 0; i < kernel_runs; ++i)
-    rank = id_hyac(handle, epi, M, N, N, d_A, M, ipiv.data(), d_X, N, algo);
+    rank = id_hyac(handle, algo, epi, u_corr, g_corr, oversampling, batchK, batchIter, M, N, N, d_A, M, ipiv.data(), d_X, N);
 
   hyacinDestroy(handle);
   cudaFree(d_A);
@@ -111,7 +112,7 @@ template <class T> inline void run(char prec, int64_t M, int64_t N, double epi, 
 
 int32_t main(int32_t argc, char* argv[]) {
   char prec = 'D', algo = 'A';
-  int64_t M = 2048, N = 2048;
+  int64_t M = 2048, N = 2048; int32_t u_corr = 6, g_corr = -5, oversampling = 10, batchK = 65536, batchIter = 2048;
   double epi = 1.e-12;
 
   for (int32_t i = 1; i < argc; ++i) {
@@ -120,6 +121,11 @@ int32_t main(int32_t argc, char* argv[]) {
     else if (std::strncmp(argv[i], "data=", 5) == 0) { std::sscanf(argv[i], "data=%c", &prec); }
     else if (std::strncmp(argv[i], "epi=", 4) == 0) { std::sscanf(argv[i], "epi=%lf", &epi); }
     else if (std::strncmp(argv[i], "algo=", 5) == 0) { std::sscanf(argv[i], "algo=%c", &algo); }
+    else if (std::strncmp(argv[i], "u_corr=", 7) == 0) { std::sscanf(argv[i], "u_corr=%d", &u_corr); }
+    else if (std::strncmp(argv[i], "g_corr=", 7) == 0) { std::sscanf(argv[i], "g_corr=%d", &g_corr); }
+    else if (std::strncmp(argv[i], "p=", 2) == 0) { std::sscanf(argv[i], "p=%d", &oversampling); }
+    else if (std::strncmp(argv[i], "batchK=", 7) == 0) { std::sscanf(argv[i], "batchK=%d", &batchK); }
+    else if (std::strncmp(argv[i], "batchIter=", 10) == 0) { std::sscanf(argv[i], "batchIter=%d", &batchIter); }
     else { std::cerr << "Ignored parameter: " << argv[i] << std::endl; }
   }
   N = std::min(M, N);
@@ -130,12 +136,12 @@ int32_t main(int32_t argc, char* argv[]) {
   { std::cerr << cudaGetErrorString(cu_err) << std::endl; return -1; }
 
   switch(prec) {
-    case 'D': run<double>(prec, M, N, epi, algo); break;
-    case 'S': run<float>(prec, M, N, epi, algo); break;
-    case 'H': run<__half>(prec, M, N, epi, algo); break;
-    case 'Z': run<std::complex<double>>(prec, M, N, epi, algo); break;
-    case 'C': run<std::complex<float>>(prec, M, N, epi, algo); break;
-    case 'J': run<__half2>(prec, M, N, epi, algo); break;
+    case 'D': run<double>(prec, algo, epi, u_corr, g_corr, oversampling, batchK, batchIter, M, N); break;
+    case 'S': run<float>(prec, algo, epi, u_corr, g_corr, oversampling, batchK, batchIter, M, N); break;
+    case 'H': run<__half>(prec, algo, epi, u_corr, g_corr, oversampling, batchK, batchIter, M, N); break;
+    case 'Z': run<std::complex<double>>(prec, algo, epi, u_corr, g_corr, oversampling, batchK, batchIter, M, N); break;
+    case 'C': run<std::complex<float>>(prec, algo, epi, u_corr, g_corr, oversampling, batchK, batchIter, M, N); break;
+    case 'J': run<__half2>(prec, algo, epi, u_corr, g_corr, oversampling, batchK, batchIter, M, N); break;
     default: break;
   }
 
