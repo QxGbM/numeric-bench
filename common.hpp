@@ -3,6 +3,7 @@
 #include <hyacin.h>
 #include <vector>
 #include <complex>
+#include <random>
 #include <algorithm>
 #include <numeric>
 #include <fstream>
@@ -102,20 +103,67 @@ template <class T> struct matrix_generator {
   const double w;
   matrix_generator(double w, int64_t M, int64_t N) : gM(M), gN(N), bodies(int64_t(3) * (M + N)), w(w) {
     int64_t nbodies = M + N;
-    const double phi = 2.39996322972865332223;  // golden angle in radians
+    const double dn = double((nbodies - int64_t(1)) ?: int64_t(1)), phi = 2.39996322972865332223; // golden angle in radians
     for (int64_t i = 0; i < nbodies; ++i) {
-      double di = double(i), dn = double((nbodies - int64_t(1)) ?: int64_t(1));
+      double di = double(i);
       double x = 1. - 2. * (di / dn);  // x goes from 1. to -1.
       double radius = std::sqrt(1. - x * x); // radius at x
       bodies[i * 3] = x;
       bodies[i * 3 + 1] = radius * std::cos(di * phi);
       bodies[i * 3 + 2] = radius * std::sin(di * phi);
     }
+    /*std::mt19937_64 gen(999);
+    std::uniform_real_distribution<double> uniform_dist(0., 1.);
+    std::array<double, 3>* b3 = reinterpret_cast<std::array<double, 3>*>(&bodies[0]);
+    std::array<double, 3>* b3_end = reinterpret_cast<std::array<double, 3>*>(&bodies[3 * nbodies]);
+    std::for_each(b3, b3_end, [&](std::array<double, 3>& body) { body[0] = uniform_dist(gen); body[1] = uniform_dist(gen); body[2] = uniform_dist(gen); });*/
+
+    auto get_bounds = [](const double* bodies, int64_t nbodies, double R[], double C[]) {
+      const std::array<double, 3>* b3 = reinterpret_cast<const std::array<double, 3>*>(&bodies[0]);
+      const std::array<double, 3>* b3_end = reinterpret_cast<const std::array<double, 3>*>(&bodies[nbodies * 3]);
+      double Xmin[3], Xmax[3];
+      for (int i = 0; i < 3; ++i) {
+        auto minmax = std::minmax_element(b3, b3_end, [=](const std::array<double, 3>& x, const std::array<double, 3>& y) { return x[i] < y[i]; });
+        Xmin[i] = (*minmax.first)[i]; Xmax[i] = (*minmax.second)[i];
+      }
+      std::transform(Xmin, &Xmin[3], Xmax, C, [](double min, double max) { return (min + max) * 0.5; });
+      std::transform(Xmin, &Xmin[3], Xmax, R, [](double min, double max) { return (min == max && min == 0.) ? 0. : ((max - min) * 0.5 + 1.e-8); });
+    };
+
+    struct Cell { std::array<int64_t, 2> Body; std::array<double, 3> R; std::array<double, 3> C; };
+    auto nextPowerOf2 = [](uint64_t x) { if (x <= 1llu) { return 1llu; } --x; x |= x >> 1; x |= x >> 2; x |= x >> 4; x |= x >> 8; x |= x >> 16; x |= x >> 32; return x + 1llu; };
+    int64_t nleaf = nextPowerOf2(uint64_t(nbodies / 512ll)); std::vector<Cell> cells(nleaf + nleaf - 1);
+    cells[0].Body[0] = 0; cells[0].Body[1] = nbodies;
+    get_bounds(&bodies[0], nbodies, cells[0].R.data(), cells[0].C.data());
+
+    for (int64_t i = 0; i < nleaf - 1; ++i) {
+      Cell& ci = cells[i];
+      int64_t sdim = std::distance(ci.R.begin(), std::max_element(ci.R.begin(), ci.R.end()));
+      int64_t i_begin = ci.Body[0];
+      int64_t i_end = ci.Body[1];
+
+      std::array<double, 3>* bodies3 = reinterpret_cast<std::array<double, 3>*>(&bodies[i_begin * 3]);
+      std::array<double, 3>* bodies3_end = reinterpret_cast<std::array<double, 3>*>(&bodies[i_end * 3]);
+      std::sort(bodies3, bodies3_end, 
+        [=](std::array<double, 3>& i, std::array<double, 3>& j) { return i[sdim] < j[sdim]; });
+
+      int64_t len = (i << 1) + 1;
+      Cell& c0 = cells[len];
+      Cell& c1 = cells[len + 1];
+      int64_t loc = i_begin + (i_end - i_begin) / 2;
+      c0.Body[0] = i_begin;
+      c0.Body[1] = loc;
+      c1.Body[0] = loc;
+      c1.Body[1] = i_end;
+
+      get_bounds(&bodies[i_begin * 3], loc - i_begin, c0.R.data(), c0.C.data());
+      get_bounds(&bodies[loc * 3], i_end - loc, c1.R.data(), c1.C.data());
+    }
   }
 
-  inline double eval_real(double d) { return std::cos(w * d) / d; }
-  inline std::complex<double> eval_complex(double d) { return std::complex<double>(eval_real(d), std::sin(-w * d) / d); }
-  //inline double eval_real(double d) { return std::exp((-d * d) / w); }
+  inline double eval_real(double d) { return d == 0. ? w : std::cos(w * d) / d; }
+  inline std::complex<double> eval_complex(double d) { return std::complex<double>(eval_real(d), d == 0. ? 0. : std::sin(-w * d) / d); }
+  //inline double eval_real(double d) { return d == 0. ? w : std::exp((-d * d) / w); }
   //inline std::complex<double> eval_complex(double d) { return std::complex<double>(eval_real(d), 0.); }
   
   void generate_block(int32_t mb, int32_t nb, T* A, int32_t lda, int32_t grid_row = 0, int32_t grid_col = 0, int32_t tile_m = 1, int32_t tile_n = 1) {
@@ -125,10 +173,10 @@ template <class T> struct matrix_generator {
       for (int64_t jA = col_offset, x = 0; jA < gN; jA = col_offset + int64_t(tile_n) * (x += int64_t(nb))) {
         int64_t cols = std::min(gN - jA, int64_t(nb));
         for (int64_t j = 0; j < cols; ++j) {
-          int64_t j_loc = int64_t(3) * (j + jA);
+          int64_t j_loc = int64_t(3) * (j + jA + gM);
           double pt_j[3]{ bodies[j_loc], bodies[j_loc + int64_t(1)], bodies[j_loc + int64_t(2)]};
           for (int64_t i = 0; i < rows; ++i) {
-            int64_t i_loc = int64_t(3) * (i + iA + gN);
+            int64_t i_loc = int64_t(3) * (i + iA);
             double diff_x = bodies[i_loc] - pt_j[0];
             double diff_y = bodies[i_loc + int64_t(1)] - pt_j[1];
             double diff_z = bodies[i_loc + int64_t(2)] - pt_j[2];
