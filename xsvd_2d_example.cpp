@@ -60,7 +60,7 @@ template <class T, class R> inline void run(char prec, char algo, char use_evd, 
   cudaStreamSynchronize(handle.cudaStream);
   cudaMemcpy(ret, d_barrier, 5 * sizeof(double), cudaMemcpyDeviceToHost);
   double div = 1. / double(tile_m * tile_n * kernel_runs); kernel_time = ret[0] * div; rep_time = ret[1] * div; comm_time = ret[2] * div;
-  double err = ret[3] == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(ret[3] / ret[4]);
+  double err = ret[4] == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(ret[3] / ret[4]);
 
   hyacinDestroy(handle);
   ncclCommDestroy(comm);

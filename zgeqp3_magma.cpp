@@ -35,6 +35,8 @@ double check_answer_lra(int32_t rank, int32_t M, int32_t N, const T* A, int32_t 
   return err;
 }
 
+inline magmaDoubleComplex conv_magmaZ(std::complex<double> a) { magmaDoubleComplex c; std::memcpy(&c, &a, sizeof(std::complex<double>)); return c; }
+
 int32_t main(int32_t argc, char* argv[]) {
   auto cu_err = cudaSetDevice(0);
   if (cu_err != cudaSuccess)
@@ -47,8 +49,7 @@ int32_t main(int32_t argc, char* argv[]) {
 
   double epi = 3 < argc ? std::atof(argv[3]) : 1.e-12;
 
-  magma_queue_t queue = nullptr;
-  magma_queue_create(0, &queue);
+  magma_queue_t queue = nullptr; magma_queue_create(0, &queue);
   cublasHandle_t cublasH = magma_queue_get_cublas_handle(queue);
   cudaStream_t stream = magma_queue_get_cuda_stream(queue);
 
@@ -72,9 +73,9 @@ int32_t main(int32_t argc, char* argv[]) {
   double s0 = epi * std::abs(matB[0].real());
   int64_t rank = 0; while (rank < N && s0 <= std::abs(matB[rank * (M + 1)].real())) { ++rank; }
 
-  union { std::complex<double> std; magmaDoubleComplex magma; } one{std::complex<double>(1., 0.)}, zero{std::complex<double>(0., 0.)};
+  magmaDoubleComplex one = conv_magmaZ(std::complex<double>(1., 0.)), zero = conv_magmaZ(std::complex<double>(0., 0.));
   cublasZtrsm(cublasH, CUBLAS_SIDE_LEFT, CUBLAS_FILL_MODE_UPPER, CUBLAS_OP_N, CUBLAS_DIAG_NON_UNIT, rank, N - rank, (cuDoubleComplex*)&one, dA, M, &dA[rank * M], M);
-  magmablas_zlaset(MagmaFull, rank, rank, zero.magma, one.magma, dA, M, queue);
+  magmablas_zlaset(MagmaFull, rank, rank, zero, one, dA, M, queue);
   cudaStreamSynchronize(stream);
 
   cudaMemcpy(&matB[0], dA, M * N * sizeof(std::complex<double>), cudaMemcpyDeviceToHost);
@@ -91,6 +92,7 @@ int32_t main(int32_t argc, char* argv[]) {
   cudaEventRecord(start, stream);
   magma_zgeqp3_gpu(M, N, dA, M, jpvt.data(), tau.data(), dC, Lwork, dR, &info);
   cublasZtrsm(cublasH, CUBLAS_SIDE_LEFT, CUBLAS_FILL_MODE_UPPER, CUBLAS_OP_N, CUBLAS_DIAG_NON_UNIT, rank, N - rank, (cuDoubleComplex*)&one, dA, M, &dA[rank * M], M);
+  magmablas_zlaset(MagmaFull, rank, rank, zero, one, dA, M, queue);
   cudaEventRecord(stop, stream);
   cudaStreamSynchronize(stream);
 

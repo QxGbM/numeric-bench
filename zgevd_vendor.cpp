@@ -43,13 +43,22 @@ int32_t main(int32_t argc, char* argv[]) {
   cudaMalloc((void**)(&d_B), lM * K * sizeof(std::complex<double>));
   cudaMalloc((void**)(&d_S), N * sizeof(double));
 
-  hyacinHandle_t handle;
+  cudaStream_t stream;
+  cublasHandle_t cublasH;
+  cusolverDnHandle_t cusolverH;
+  cusolverDnParams_t params;
   ncclComm_t comm;
 
-  hyacinCreate(&handle, 0);
+  cudaStreamCreate(&stream);
+  cublasCreate(&cublasH);
+  cublasSetStream(cublasH, stream);
+  cusolverDnCreate(&cusolverH);
+  cusolverDnSetStream(cusolverH, stream);
+  cusolverDnCreateParams(&params);
   ncclCommInitRank(&comm, tile_m, id, grid_row);
+
   size_t workspaceInBytesOnDevice = 0, workspaceInBytesOnHost = 0;
-  cusolverDnXsyevd_bufferSize(handle.cusolverHandle, handle.cusolverParams, CUSOLVER_EIG_MODE_VECTOR, CUBLAS_FILL_MODE_LOWER,
+  cusolverDnXsyevd_bufferSize(cusolverH, params, CUSOLVER_EIG_MODE_VECTOR, CUBLAS_FILL_MODE_LOWER,
     N, CUDA_C_64F, d_V, N, CUDA_R_64F, d_S, CUDA_C_64F, &workspaceInBytesOnDevice, &workspaceInBytesOnHost);
 
   cudaMalloc((void**)(&evd_work_device), workspaceInBytesOnDevice);
@@ -62,65 +71,58 @@ int32_t main(int32_t argc, char* argv[]) {
   cudaEventCreate(&cstart);
   cudaEventCreate(&cstop);
 
-  int32_t* d_barrier = nullptr;
-  cudaMalloc((void**)(&d_barrier), sizeof(double2));
-  cudaMemset(d_barrier, 0xDEADBEEF, sizeof(double2));
-
+  int32_t* d_barrier = nullptr; cudaMalloc((void**)(&d_barrier), 4 * sizeof(double));
   cuDoubleComplex one = make_cuDoubleComplex(1., 0.), zero = make_cuDoubleComplex(0., 0.);
   int64_t col_start = N - K;
-  cublasZherk(handle.cublasHandle, CUBLAS_FILL_MODE_LOWER, CUBLAS_OP_C, N, lM, (double*)&one, (cuDoubleComplex*)d_A, lM, (double*)&zero, (cuDoubleComplex*)d_V, N);
-  ncclAllReduce(d_V, d_V, int64_t(2) * N * N, ncclDouble, ncclSum, comm, handle.cudaStream);
-  cusolverDnXsyevd(handle.cusolverHandle, handle.cusolverParams, CUSOLVER_EIG_MODE_VECTOR, CUBLAS_FILL_MODE_LOWER,
+  cublasZherk(cublasH, CUBLAS_FILL_MODE_LOWER, CUBLAS_OP_C, N, lM, (double*)&one, (cuDoubleComplex*)d_A, lM, (double*)&zero, (cuDoubleComplex*)d_V, N);
+  ncclAllReduce(d_V, d_V, int64_t(2) * N * N, ncclDouble, ncclSum, comm, stream);
+  cusolverDnXsyevd(cusolverH, params, CUSOLVER_EIG_MODE_VECTOR, CUBLAS_FILL_MODE_LOWER,
     N, CUDA_C_64F, d_V, N, CUDA_R_64F, d_S, CUDA_C_64F, evd_work_device, workspaceInBytesOnDevice, evd_work_host, workspaceInBytesOnHost, nullptr);
-  cublasZgemm(handle.cublasHandle, CUBLAS_OP_N, CUBLAS_OP_N, lM, K, N, &one, (cuDoubleComplex*)d_A, lM, (cuDoubleComplex*)&d_V[col_start * N], N, &zero, (cuDoubleComplex*)d_B, lM);
-  cudaStreamSynchronize(handle.cudaStream);
+  cublasZgemm(cublasH, CUBLAS_OP_N, CUBLAS_OP_N, lM, K, N, &one, (cuDoubleComplex*)d_A, lM, (cuDoubleComplex*)&d_V[col_start * N], N, &zero, (cuDoubleComplex*)d_B, lM);
+  cudaStreamSynchronize(stream);
 
   std::vector<std::complex<double>> matU(lM * K), matV(K * N);
   cudaMemcpy(matU.data(), d_B, lM * K * sizeof(std::complex<double>), cudaMemcpyDeviceToHost);
   cudaMemcpy(matV.data(), &d_V[col_start * N], K * N * sizeof(std::complex<double>), cudaMemcpyDeviceToHost);
 
-  double ret[2]{ check_answer_svd(lM, N, K, &matU[0], lM, &matV[0], N, &matA[0], lM), fnorm(lM, N, &matA[0], lM) };
-  cudaMemcpy(d_barrier, ret, sizeof(double2), cudaMemcpyHostToDevice);
-  ncclAllReduce(d_barrier, d_barrier, 2, ncclDouble, ncclSum, comm, handle.cudaStream);
-  cudaStreamSynchronize(handle.cudaStream);
-  cudaMemcpy(ret, d_barrier, sizeof(double2), cudaMemcpyDeviceToHost);
-  cudaMemset(d_barrier, 0xDEADBEEF, sizeof(double2));
-  double err = ret[1] == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(ret[0] / ret[1]);
-
   cudaMemcpy(d_A, matA.data(), lM * N * sizeof(std::complex<double>), cudaMemcpyHostToDevice);
-  ncclAllReduce(d_barrier, d_barrier, 1, ncclInt32, ncclMin, comm, handle.cudaStream);
-  cudaStreamSynchronize(handle.cudaStream);
+  ncclAllReduce(d_barrier, d_barrier, 1, ncclInt32, ncclMin, comm, stream);
+  cudaStreamSynchronize(stream);
   kernel_time = comm_time = 0.;
-  cudaEventRecord(start, handle.cudaStream);
+  cudaEventRecord(start, stream);
 
-  cublasZherk(handle.cublasHandle, CUBLAS_FILL_MODE_LOWER, CUBLAS_OP_C, N, lM, (double*)&one, (cuDoubleComplex*)d_A, lM, (double*)&zero, (cuDoubleComplex*)d_V, N);
-  cudaEventRecord(cstart, handle.cudaStream);
-  ncclAllReduce(d_V, d_V, int64_t(2) * N * N, ncclDouble, ncclSum, comm, handle.cudaStream);
-  cudaEventRecord(cstop, handle.cudaStream);
-  cusolverDnXsyevd(handle.cusolverHandle, handle.cusolverParams, CUSOLVER_EIG_MODE_VECTOR, CUBLAS_FILL_MODE_LOWER,
+  cublasZherk(cublasH, CUBLAS_FILL_MODE_LOWER, CUBLAS_OP_C, N, lM, (double*)&one, (cuDoubleComplex*)d_A, lM, (double*)&zero, (cuDoubleComplex*)d_V, N);
+  cudaEventRecord(cstart, stream);
+  ncclAllReduce(d_V, d_V, int64_t(2) * N * N, ncclDouble, ncclSum, comm, stream);
+  cudaEventRecord(cstop, stream);
+  cusolverDnXsyevd(cusolverH, params, CUSOLVER_EIG_MODE_VECTOR, CUBLAS_FILL_MODE_LOWER,
     N, CUDA_C_64F, d_V, N, CUDA_R_64F, d_S, CUDA_C_64F, evd_work_device, workspaceInBytesOnDevice, evd_work_host, workspaceInBytesOnHost, nullptr);
-  cublasZgemm(handle.cublasHandle, CUBLAS_OP_N, CUBLAS_OP_N, lM, K, N, &one, (cuDoubleComplex*)d_A, lM, (cuDoubleComplex*)&d_V[col_start * N], N, &zero, (cuDoubleComplex*)d_B, lM);
+  cublasZgemm(cublasH, CUBLAS_OP_N, CUBLAS_OP_N, lM, K, N, &one, (cuDoubleComplex*)d_A, lM, (cuDoubleComplex*)&d_V[col_start * N], N, &zero, (cuDoubleComplex*)d_B, lM);
 
-  ncclAllReduce(d_barrier, d_barrier, 1, ncclInt32, ncclMin, comm, handle.cudaStream);
-  cudaEventRecord(stop, handle.cudaStream);
-  cudaStreamSynchronize(handle.cudaStream);
+  ncclAllReduce(d_barrier, d_barrier, 1, ncclInt32, ncclMin, comm, stream);
+  cudaEventRecord(stop, stream);
+  cudaStreamSynchronize(stream);
   float milliseconds = 0.0f; cudaEventElapsedTime(&milliseconds, start, stop);
   float seg1 = 0.0f, seg2 = 0.0f, seg3 = 0.0f; cudaEventElapsedTime(&seg1, start, cstart); cudaEventElapsedTime(&seg2, cstart, cstop); cudaEventElapsedTime(&seg3, cstop, stop);
   kernel_time = double(seg1) + double(seg3); comm_time = double(seg2);
 
-  ret[0] = kernel_time; ret[1] = comm_time;
-  cudaMemcpy(d_barrier, ret, sizeof(double2), cudaMemcpyHostToDevice);
-  ncclAllReduce(d_barrier, d_barrier, 2, ncclDouble, ncclSum, comm, handle.cudaStream);
-  cudaStreamSynchronize(handle.cudaStream);
-  cudaMemcpy(ret, d_barrier, sizeof(double2), cudaMemcpyDeviceToHost);
+  double ret[4]{ kernel_time, comm_time, check_answer_svd(lM, N, K, &matU[0], lM, &matV[0], N, &matA[0], lM), fnorm(lM, N, &matA[0], lM) };
+  cudaMemcpy(d_barrier, ret, 4 * sizeof(double), cudaMemcpyHostToDevice);
+  ncclAllReduce(d_barrier, d_barrier, 4, ncclDouble, ncclSum, comm, stream);
+  cudaStreamSynchronize(stream);
+  cudaMemcpy(ret, d_barrier, 4 * sizeof(double), cudaMemcpyDeviceToHost);
   kernel_time = ret[0]; comm_time = ret[1];
+  double err = ret[3] == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(ret[2] / ret[3]);
 
   cudaFree(d_barrier);
   cudaEventDestroy(start);
   cudaEventDestroy(stop);
   cudaEventDestroy(cstart);
   cudaEventDestroy(cstop);
-  hyacinDestroy(handle);
+  cudaStreamDestroy(stream);
+  cublasDestroy(cublasH);
+  cusolverDnDestroy(cusolverH);
+  cusolverDnDestroyParams(params);
   ncclCommDestroy(comm);
 
   std::vector<double> vecS(K);
