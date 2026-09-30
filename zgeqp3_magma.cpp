@@ -52,24 +52,18 @@ int32_t main(int32_t argc, char* argv[]) {
   cublasHandle_t cublasH = magma_queue_get_cublas_handle(queue);
   cudaStream_t stream = magma_queue_get_cuda_stream(queue);
 
-  magmaDoubleComplex* dA, *dB, *dC;
-  double* dR;
+  magmaDoubleComplex* dA, *dC; double* dR;
   std::vector<magmaDoubleComplex> tau(N);
   std::vector<magma_int_t> jpvt(N, 0);
 
   std::vector<std::complex<double>> matA(M * N), matB(M * N);
   matrix_generator<std::complex<double>>(1., M, N).generate_block(512, 512, &matA[0], M);
   
+  int64_t Lwork = 128ll * (N + 1ll); magma_int_t info;
   cudaMalloc((void**)&dA, M * N * sizeof(std::complex<double>));
-  cudaMalloc((void**)&dB, M * N * sizeof(std::complex<double>));
+  cudaMalloc((void**)&dC, Lwork * sizeof(std::complex<double>));
   cudaMalloc((void**)&dR, 2 * N * sizeof(double));
   cudaMemcpy(dA, &matA[0], M * N * sizeof(std::complex<double>), cudaMemcpyHostToDevice);
-
-  magma_int_t Lwork, info;
-  magmaDoubleComplex work;
-  magma_zgeqp3(M, N, nullptr, M, jpvt.data(), tau.data(), &work, -1, dR, &info);
-  Lwork = std::max(int64_t(16) * (magma_int_t)(work.x), M * N);
-  cudaMalloc((void**)&dC, int64_t(Lwork) * sizeof(std::complex<double>));
 
   magma_zgeqp3_gpu(M, N, dA, M, jpvt.data(), tau.data(), dC, Lwork, dR, &info);
   cudaStreamSynchronize(stream);
@@ -108,7 +102,6 @@ int32_t main(int32_t argc, char* argv[]) {
   std::cout << "magma-ZLRA," << M << "," << N << "," << epi << "," << err << "," << rank << "," << milliseconds << "," << gflops << std::endl;
   
   cudaFree(dA);
-  cudaFree(dB);
   cudaFree(dC);
   cudaFree(dR);
 

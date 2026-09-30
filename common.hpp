@@ -2,6 +2,7 @@
 
 #include <hyacin.h>
 #include <vector>
+#include <array>
 #include <complex>
 #include <random>
 #include <algorithm>
