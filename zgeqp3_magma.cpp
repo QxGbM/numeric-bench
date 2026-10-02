@@ -3,21 +3,6 @@
 #include <iostream>
 #include <magma_v2.h>
 
-void make_2D_oscillatory(double w, int32_t sep, int32_t M, int32_t N, std::complex<double>* A, int32_t lda) {
-  constexpr int32_t height = 128;
-  auto translate_2d = [](int64_t i) { int64_t x = i / height, y = i - height * x; return std::complex<double>(x, y); };
-  sep = height * sep + ((M + height - 1) & (~(height - 1)));
-
-  for (int32_t j = 0; j < N; ++j) {
-    auto vj = translate_2d(j + sep);
-    for (int32_t i = 0; i < M; ++i) {
-      auto vi = translate_2d(i);
-      double d = std::abs(vi - vj);
-      A[uint64_t(i) + uint64_t(j) * uint64_t(lda)] = std::complex<double>(std::cos(w * d) / d, std::sin(w * d) / d);
-    }
-  }
-}
-
 template <class T>
 double check_answer_lra(int32_t rank, int32_t M, int32_t N, const T* A, int32_t lda, const int32_t* jpiv, const T* R, int32_t ldr) {
   if (rank <= 0 || M <= 0 || N <= 0) { return 0.; }

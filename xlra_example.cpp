@@ -3,23 +3,6 @@
 #include <iostream>
 #include <chrono>
 
-template <class T> void make_2D_oscillatory(double w, int32_t sep, int32_t M, int32_t N, T* A, int32_t lda) {
-  constexpr int32_t height = 128;
-  auto translate_2d = [](int64_t i) { int64_t x = i / height, y = i - height * x; return std::complex<double>(x, y); };
-  sep = height * sep + ((M + height - 1) & (~(height - 1)));
-
-  for (int32_t j = 0; j < N; ++j) {
-    auto vj = translate_2d(j + sep);
-    for (int32_t i = 0; i < M; ++i) {
-      auto vi = translate_2d(i);
-      double d = std::abs(vi - vj);
-      int64_t k = int64_t(i) + int64_t(j) * int64_t(lda);
-      if constexpr(std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, __half2>)
-      { A[k] = conv<T>(std::complex<double>(std::cos(w * d) / d, std::sin(w * d) / d)); } else { A[k] = T(std::cos(w * d) / d); }
-    }
-  }
-}
-
 template <class T>
 double check_answer_lra(int32_t rank, int32_t M, int32_t N, const T* A, int32_t lda, const int32_t* jpiv, const T* R, int32_t ldr) {
   if (rank <= 0 || M <= 0 || N <= 0) { return 0.; }
