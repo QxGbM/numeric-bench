@@ -3,7 +3,7 @@
 #include <iostream>
 #include <chrono>
 
-template <class T, class R> inline void run(char prec, char algo, char use_evd, double epi, int32_t u_corr, int32_t g_corr, int32_t oversampling, int32_t batchK, int32_t batchIter, int64_t M, int64_t N, int64_t K, const std::string& file) {
+template <class T, class R> inline void run(char prec, char algo, double epi, int32_t jacobi_sweeps, int32_t u_corr, int32_t g_corr, int32_t oversampling, int32_t batchK, int32_t batchIter, int64_t M, int64_t N, int64_t K, const std::string& file) {
   std::vector<T> matA(M * N);
   if (!file.empty())
     matrix_from_row_major_csv(M, N, 512, 512, matA.data(), M, file);
@@ -23,7 +23,7 @@ template <class T, class R> inline void run(char prec, char algo, char use_evd, 
   hyacinHandle_t handle;
   hyacinCreate(&handle, 1);
 
-  int32_t rank = svd_fit_transform(handle, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, M, M, N, K, d_A, M, d_U, M, d_S, d_V, N, N);
+  int32_t rank = svd_fit_transform(handle, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, M, M, N, K, d_A, M, d_U, M, d_S, d_V, N, N);
 
   std::vector<T> matU(M * K), matV(K * N);
   cudaMemcpy(matU.data(), d_U, M * K * sizeof(T), cudaMemcpyDeviceToHost);
@@ -34,7 +34,7 @@ template <class T, class R> inline void run(char prec, char algo, char use_evd, 
   kernel_time = 0.;
 
   for (int32_t i = 0; i < kernel_runs; ++i)
-    rank = svd_fit_transform(handle, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, M, M, N, K, d_A, M, d_U, M, d_S, d_V, N, N);
+    rank = svd_fit_transform(handle, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, M, M, N, K, d_A, M, d_U, M, d_S, d_V, N, N);
 
   hyacinDestroy(handle);
   std::vector<R> vecS(K);
@@ -50,8 +50,8 @@ template <class T, class R> inline void run(char prec, char algo, char use_evd, 
 }
 
 int32_t main(int32_t argc, char* argv[]) {
-  char prec = 'D', algo = 'A', use_evd = 'A'; std::string file;
-  int64_t M = 2048, N = 2048, K = 2048; int32_t u_corr = 6, g_corr = -5, oversampling = 10, batchK = 65536, batchIter = 2048;
+  char prec = 'D', algo = 'A'; std::string file;
+  int64_t M = 2048, N = 2048, K = 2048; int32_t jacobi_sweeps = 30, u_corr = 6, g_corr = -5, oversampling = 10, batchK = 65536, batchIter = 2048;
   double epi = 1.e-12;
 
   for (int32_t i = 1; i < argc; ++i) {
@@ -62,7 +62,7 @@ int32_t main(int32_t argc, char* argv[]) {
     else if (std::strncmp(argv[i], "epi=", 4) == 0) { std::sscanf(argv[i], "epi=%lf", &epi); }
     else if (std::strncmp(argv[i], "file=", 5) == 0) { file.resize(std::strlen(argv[i])); std::sscanf(argv[i], "file=%s", file.data()); }
     else if (std::strncmp(argv[i], "algo=", 5) == 0) { std::sscanf(argv[i], "algo=%c", &algo); }
-    else if (std::strncmp(argv[i], "evd=", 4) == 0) { std::sscanf(argv[i], "evd=%c", &use_evd); }
+    else if (std::strncmp(argv[i], "jacobi=", 7) == 0) { std::sscanf(argv[i], "jacobi=%d", &jacobi_sweeps); }
     else if (std::strncmp(argv[i], "u_corr=", 7) == 0) { std::sscanf(argv[i], "u_corr=%d", &u_corr); }
     else if (std::strncmp(argv[i], "g_corr=", 7) == 0) { std::sscanf(argv[i], "g_corr=%d", &g_corr); }
     else if (std::strncmp(argv[i], "p=", 2) == 0) { std::sscanf(argv[i], "p=%d", &oversampling); }
@@ -78,12 +78,12 @@ int32_t main(int32_t argc, char* argv[]) {
   { std::cerr << cudaGetErrorString(cu_err) << std::endl; return -1; }
 
   switch(prec) {
-    case 'D': run<double, double>(prec, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, M, N, K, file); break;
-    case 'S': run<float, float>(prec, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, M, N, K, file); break;
-    case 'H': run<__half, __half>(prec, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, M, N, K, file); break;
-    case 'Z': run<std::complex<double>, double>(prec, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, M, N, K, file); break;
-    case 'C': run<std::complex<float>, float>(prec, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, M, N, K, file); break;
-    case 'J': run<__half2, __half>(prec, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, M, N, K, file); break;
+    case 'D': run<double, double>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, M, N, K, file); break;
+    case 'S': run<float, float>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, M, N, K, file); break;
+    case 'H': run<__half, __half>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, M, N, K, file); break;
+    case 'Z': run<std::complex<double>, double>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, M, N, K, file); break;
+    case 'C': run<std::complex<float>, float>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, M, N, K, file); break;
+    case 'J': run<__half2, __half>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, M, N, K, file); break;
     default: break;
   }
 

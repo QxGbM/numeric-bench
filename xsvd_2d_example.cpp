@@ -3,7 +3,7 @@
 #include <iostream>
 #include <chrono>
 
-template <class T, class R> inline void run(char prec, char algo, char use_evd, double epi, int32_t u_corr, int32_t g_corr, int32_t oversampling, int32_t batchK, int32_t batchIter,
+template <class T, class R> inline void run(char prec, char algo, double epi, int32_t jacobi_sweeps, int32_t u_corr, int32_t g_corr, int32_t oversampling, int32_t batchK, int32_t batchIter,
   int64_t gM, int64_t gN, int64_t K, int64_t mb, int64_t nb, int32_t grid_row, int32_t grid_col, int32_t tile_m, int32_t tile_n, ncclUniqueId id, const std::string& file) {
   int64_t gK = K * tile_n;
   int64_t lM = mb * (gM / (mb * tile_m));
@@ -36,9 +36,9 @@ template <class T, class R> inline void run(char prec, char algo, char use_evd, 
   hyacinCreate2D(&handle, comm_col, comm_row, 1);
 
   int32_t* d_barrier = nullptr; cudaMalloc((void**)(&d_barrier), 5 * sizeof(double));
-  int32_t r1 = svd_fit_transform(handle, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, lM, gM, lN, K, d_A, lM, d_U, lM, d_S, d_V, lN, lN), N2 = r1;
+  int32_t r1 = svd_fit_transform(handle, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, lM, gM, lN, K, d_A, lM, d_U, lM, d_S, d_V, lN, lN), N2 = r1;
   int32_t offset = hyacinXAllGatherV1Dcol(handle, lM, &N2, int32_t(sizeof(T)), d_U, lM);
-  int32_t r2 = svd_fit_transform(handle, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, lM, gM, N2, K, d_U, lM, d_U, lM, d_S, d_V, lN, lN, r1, offset);
+  int32_t r2 = svd_fit_transform(handle, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, lM, gM, N2, K, d_U, lM, d_U, lM, d_S, d_V, lN, lN, r1, offset);
 
   std::vector<T> matU(lM * K), matV(K * lN);
   cudaMemcpy(matU.data(), d_U, lM * K * sizeof(T), cudaMemcpyDeviceToHost);
@@ -49,9 +49,9 @@ template <class T, class R> inline void run(char prec, char algo, char use_evd, 
   kernel_time = rep_time = comm_time = 0.;
 
   for (int32_t i = 0; i < kernel_runs; ++i) {
-    N2 = r1 = svd_fit_transform(handle, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, lM, gM, lN, K, d_A, lM, d_U, lM, d_S, d_V, lN, lN);
+    N2 = r1 = svd_fit_transform(handle, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, lM, gM, lN, K, d_A, lM, d_U, lM, d_S, d_V, lN, lN);
     offset = hyacinXAllGatherV1Dcol(handle, lM, &N2, int32_t(sizeof(T)), d_U, lM);
-    r2 = svd_fit_transform(handle, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, lM, gM, N2, K, d_U, lM, d_U, lM, d_S, d_V, lN, lN, r1, offset);
+    r2 = svd_fit_transform(handle, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, lM, gM, N2, K, d_U, lM, d_U, lM, d_S, d_V, lN, lN, r1, offset);
   }
 
   double ret[5]{ kernel_time, rep_time, comm_time, check_answer_svd(lM, lN, r2, &matU[0], lM, &matV[0], lN, &matA[0], lM), fnorm(lM, lN, &matA[0], lM) };
@@ -79,8 +79,8 @@ template <class T, class R> inline void run(char prec, char algo, char use_evd, 
 }
 
 int32_t main(int32_t argc, char* argv[]) {
-  char prec = 'D', algo = 'A', use_evd = 'A'; std::string file;
-  int32_t tile_m = 1, tile_n = 1, u_corr = 6, g_corr = -5, oversampling = 10, batchK = 65536, batchIter = 2048;
+  char prec = 'D', algo = 'A'; std::string file;
+  int32_t tile_m = 1, tile_n = 1, jacobi_sweeps = 30, u_corr = 6, g_corr = -5, oversampling = 10, batchK = 65536, batchIter = 2048;
   int64_t gM = 2048, gN = 2048, K = 2048, mb = 512, nb = 512;
   double epi = 1.e-12;
 
@@ -96,7 +96,7 @@ int32_t main(int32_t argc, char* argv[]) {
     else if (std::strncmp(argv[i], "tilen=", 6) == 0) { std::sscanf(argv[i], "tilen=%d", &tile_n); }
     else if (std::strncmp(argv[i], "file=", 5) == 0) { file.resize(std::strlen(argv[i])); std::sscanf(argv[i], "file=%s", file.data()); }
     else if (std::strncmp(argv[i], "algo=", 5) == 0) { std::sscanf(argv[i], "algo=%c", &algo); }
-    else if (std::strncmp(argv[i], "evd=", 4) == 0) { std::sscanf(argv[i], "evd=%c", &use_evd); }
+    else if (std::strncmp(argv[i], "jacobi=", 7) == 0) { std::sscanf(argv[i], "jacobi=%d", &jacobi_sweeps); }
     else if (std::strncmp(argv[i], "u_corr=", 7) == 0) { std::sscanf(argv[i], "u_corr=%d", &u_corr); }
     else if (std::strncmp(argv[i], "g_corr=", 7) == 0) { std::sscanf(argv[i], "g_corr=%d", &g_corr); }
     else if (std::strncmp(argv[i], "p=", 2) == 0) { std::sscanf(argv[i], "p=%d", &oversampling); }
@@ -122,12 +122,12 @@ int32_t main(int32_t argc, char* argv[]) {
   { std::cerr << cudaGetErrorString(cu_err) << std::endl; return -1; }
 
   switch(prec) {
-    case 'D': run<double, double>(prec, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, gM, gN, K, mb, nb, grid_row, grid_col, tile_m, tile_n, id, file); break;
-    case 'S': run<float, float>(prec, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, gM, gN, K, mb, nb, grid_row, grid_col, tile_m, tile_n, id, file); break;
-    case 'H': run<__half, __half>(prec, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, gM, gN, K, mb, nb, grid_row, grid_col, tile_m, tile_n, id, file); break;
-    case 'Z': run<std::complex<double>, double>(prec, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, gM, gN, K, mb, nb, grid_row, grid_col, tile_m, tile_n, id, file); break;
-    case 'C': run<std::complex<float>, float>(prec, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, gM, gN, K, mb, nb, grid_row, grid_col, tile_m, tile_n, id, file); break;
-    case 'J': run<__half2, __half>(prec, algo, use_evd, epi, u_corr, g_corr, oversampling, batchK, batchIter, gM, gN, K, mb, nb, grid_row, grid_col, tile_m, tile_n, id, file); break;
+    case 'D': run<double, double>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, gM, gN, K, mb, nb, grid_row, grid_col, tile_m, tile_n, id, file); break;
+    case 'S': run<float, float>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, gM, gN, K, mb, nb, grid_row, grid_col, tile_m, tile_n, id, file); break;
+    case 'H': run<__half, __half>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, gM, gN, K, mb, nb, grid_row, grid_col, tile_m, tile_n, id, file); break;
+    case 'Z': run<std::complex<double>, double>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, gM, gN, K, mb, nb, grid_row, grid_col, tile_m, tile_n, id, file); break;
+    case 'C': run<std::complex<float>, float>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, gM, gN, K, mb, nb, grid_row, grid_col, tile_m, tile_n, id, file); break;
+    case 'J': run<__half2, __half>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, gM, gN, K, mb, nb, grid_row, grid_col, tile_m, tile_n, id, file); break;
     default: break;
   }
 

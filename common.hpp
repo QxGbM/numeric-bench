@@ -233,7 +233,7 @@ template <> inline hyacinPrecision_t __precA<std::complex<float>>() { return HYA
 template <> inline hyacinPrecision_t __precA<__half2>() { return HYACIN_F16_COMPLEX; };
 
 template <class T, class R>
-int32_t svd_fit_transform(hyacinHandle_t handle, char algo, char use_evd, double epi, int32_t u_corr, int32_t g_corr, int32_t oversampling, int32_t batchK, int32_t batchIter,
+int32_t svd_fit_transform(hyacinHandle_t handle, char algo, double epi, int32_t jacobi_sweeps, int32_t u_corr, int32_t g_corr, int32_t oversampling, int32_t batchK, int32_t batchIter,
   int32_t M, int32_t gM, int32_t N, int32_t K, const T* A, int32_t lda, T* U, int32_t ldu, R* S, T* V, int32_t ldv, int32_t Mv, int32_t Nv = 0, int32_t lcol_offset = 0) {
   hyacinPrecision_t Atype = __precA<T>(), Gtype;
   int32_t* vexp = nullptr, u, cPanels, lPanels, gElemBytes; uint64_t strideC;
@@ -257,7 +257,7 @@ int32_t svd_fit_transform(hyacinHandle_t handle, char algo, char use_evd, double
   cudaFreeAsync(vexp, handle.cudaStream); cudaFreeAsync(C, handle.cudaStream);
 
   T* X = nullptr; cudaMallocFromPoolAsync((void**)&X, uint64_t(N) * uint64_t(K) * sizeof(T), handle.mempool, handle.cudaStream);
-  int32_t rank = hyacinXGevPcsvd(handle, use_evd, 'A', epi, N, K, oversampling, Atype, X, N, S, Gtype, G, N);
+  int32_t rank = hyacinXGevd(handle, 'A', epi, jacobi_sweeps, N, K, oversampling, Atype, X, N, S, Gtype, G, N);
   cudaFreeAsync(G, handle.cudaStream);
   hyacinXtransform(handle, M, N, rank, Atype, A, lda, U, ldu, X, N);
   hyacinXtransform(handle, Mv, Nv, rank, Atype, V, ldv, V, ldv, &X[lcol_offset], N);
