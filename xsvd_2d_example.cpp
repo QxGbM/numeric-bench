@@ -33,12 +33,12 @@ template <class T, class R> inline void run(char prec, char algo, double epi, in
   ncclCommInitRank(&comm, tile_m * tile_n, id, grid_row + grid_col * tile_m);
   ncclCommSplit(comm, grid_row, grid_col, &comm_row, nullptr);
   ncclCommSplit(comm, grid_col, grid_row, &comm_col, nullptr);
-  hyacinCreate2D(&handle, comm_col, comm_row, 1);
+  hyacinCreate2D(&handle, comm_col, comm_row); handle_param_overwrite(&handle, algo, batchK, u_corr, g_corr, jacobi_sweeps, oversampling);
 
   int32_t* d_barrier = nullptr; cudaMalloc((void**)(&d_barrier), 5 * sizeof(double));
-  int32_t r1 = svd_fit_transform(handle, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, lM, gM, lN, K, d_A, lM, d_U, lM, d_S, d_V, lN, lN), N2 = r1;
-  int32_t offset = hyacinXAllGatherV1Dcol(handle, lM, &N2, int32_t(sizeof(T)), d_U, lM);
-  int32_t r2 = svd_fit_transform(handle, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, lM, gM, N2, K, d_U, lM, d_U, lM, d_S, d_V, lN, lN, r1, offset);
+  int32_t r1 = svd_fit_transform(handle, epi, batchIter, lM, gM, lN, K, d_A, lM, d_U, lM, d_S, d_V, lN, lN), N2 = r1;
+  int32_t offset = hyacinXAllGatherV1Dcol(&handle, lM, &N2, int32_t(sizeof(T)), d_U, lM);
+  int32_t r2 = svd_fit_transform(handle, epi, batchIter, lM, gM, N2, K, d_U, lM, d_U, lM, d_S, d_V, lN, lN, r1, offset);
 
   std::vector<T> matU(lM * K), matV(K * lN);
   cudaMemcpy(matU.data(), d_U, lM * K * sizeof(T), cudaMemcpyDeviceToHost);
@@ -49,9 +49,9 @@ template <class T, class R> inline void run(char prec, char algo, double epi, in
   kernel_time = rep_time = comm_time = 0.;
 
   for (int32_t i = 0; i < kernel_runs; ++i) {
-    N2 = r1 = svd_fit_transform(handle, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, lM, gM, lN, K, d_A, lM, d_U, lM, d_S, d_V, lN, lN);
-    offset = hyacinXAllGatherV1Dcol(handle, lM, &N2, int32_t(sizeof(T)), d_U, lM);
-    r2 = svd_fit_transform(handle, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, lM, gM, N2, K, d_U, lM, d_U, lM, d_S, d_V, lN, lN, r1, offset);
+    N2 = r1 = svd_fit_transform(handle, epi, batchIter, lM, gM, lN, K, d_A, lM, d_U, lM, d_S, d_V, lN, lN);
+    offset = hyacinXAllGatherV1Dcol(&handle, lM, &N2, int32_t(sizeof(T)), d_U, lM);
+    r2 = svd_fit_transform(handle, epi, batchIter, lM, gM, N2, K, d_U, lM, d_U, lM, d_S, d_V, lN, lN, r1, offset);
   }
 
   double ret[5]{ kernel_time, rep_time, comm_time, check_answer_svd(lM, lN, r2, &matU[0], lM, &matV[0], lN, &matA[0], lM), fnorm(lM, lN, &matA[0], lM) };
@@ -62,7 +62,7 @@ template <class T, class R> inline void run(char prec, char algo, double epi, in
   double div = 1. / double(tile_m * tile_n * kernel_runs); kernel_time = ret[0] * div; rep_time = ret[1] * div; comm_time = ret[2] * div;
   double err = ret[4] == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(ret[3] / ret[4]);
 
-  hyacinDestroy(handle);
+  hyacinDestroy(&handle);
   ncclCommDestroy(comm);
   ncclCommDestroy(comm_row);
   ncclCommDestroy(comm_col);

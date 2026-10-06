@@ -18,33 +18,33 @@ double check_answer_lra(int32_t rank, int32_t M, int32_t N, const T* A, int32_t 
 }
 
 template <class T>
-int32_t id_hyac(hyacinHandle_t handle, char algo, double epi, int32_t u_corr, int32_t g_corr, int32_t oversampling, int32_t batchK, int32_t batchIter,
-  int32_t M, int32_t N, int32_t K, const T* A, int32_t lda, int32_t* jpiv, T* R, int32_t ldr) {
+int32_t id_hyac(hyacinHandle_t handle, double epi, int32_t batchIter, int32_t M, int32_t N, int32_t K, const T* A, int32_t lda, int32_t* jpiv, T* R, int32_t ldr) {
   hyacinPrecision_t Atype = __precA<T>(), Gtype;
-  int32_t* vexp = nullptr, u, cPanels, lPanels, gElemBytes; uint64_t strideC;
+  int32_t* vexp = nullptr, u, cPanels, lPanels, gElemBytes; uint64_t strideC, Bbytes;
   cudaMallocFromPoolAsync((void**)&vexp, uint64_t(N) * sizeof(int32_t), handle.mempool, handle.cudaStream);
-  hyacinXGautoType(epi, u_corr, g_corr, M, N, Atype, &u, &cPanels, &lPanels, &strideC, &Gtype, &gElemBytes);
-  hyacinXquantizeScale(handle, M, N, Atype, A, lda, u, 0, vexp);
+  hyacinXGautoType(&handle, epi, M, N, Atype, &u, &cPanels, &lPanels, &strideC, &Gtype, &gElemBytes);
+  hyacinXquantizeScale(&handle, M, N, Atype, A, lda, u, 0, vexp);
 
   uint64_t* C = nullptr; cudaMallocFromPoolAsync((void**)&C, uint64_t(cPanels) * uint64_t(lPanels) * strideC * sizeof(uint64_t), handle.mempool, handle.cudaStream);
-  void* param = hyacinXherkBatchCreate(handle, algo, epi, u_corr, batchK, N, Atype);
+  int8_t* Bdata = nullptr; hyacinXherkBatchCreate(&handle, epi, N, Atype, &Bbytes);
+  cudaMallocFromPoolAsync((void**)&Bdata, Bbytes, handle.mempool, handle.cudaStream);
 
-  int32_t beta = 0, iter = param ? batchIter : M; u = param ? HYACIN_QUERY_U : u;
+  int32_t beta = 0, iter = Bbytes ? batchIter : M; u = Bbytes ? HYACIN_QUERY_U : u;
   for (int32_t i = 0; i < M; i += iter)
-  { int32_t rows = std::min(M - i, iter); hyacinXherkBatch(handle, algo, rows, N, Atype, &A[i], lda, u, vexp, &beta, lPanels, C, param); }
-  hyacinXherkBatchFlush(handle, N, Atype, vexp, beta, lPanels, C, param);
-  hyacinXherkBatchDestroy(handle, param);
+  { int32_t rows = std::min(M - i, iter); hyacinXherkBatch(&handle, rows, N, Atype, &A[i], lda, u, vexp, &beta, lPanels, C, Bdata); }
+  hyacinXherkBatchFlush(&handle, N, Atype, vexp, beta, lPanels, C, Bdata);
+  cudaFreeAsync(Bdata, handle.cudaStream);
 
   void* G = nullptr; cudaMallocFromPoolAsync((void**)&G, uint64_t(N) * uint64_t(N) * uint64_t(gElemBytes), handle.mempool, handle.cudaStream);
-  hyacinXdequantize(handle, N, lPanels, C, vexp, Gtype, G, N);
+  hyacinXdequantize(&handle, N, lPanels, C, vexp, Gtype, G, N);
   cudaFreeAsync(vexp, handle.cudaStream); cudaFreeAsync(C, handle.cudaStream);
 
   int32_t* piv = nullptr; cudaMallocFromPoolAsync((void**)&piv, uint64_t(N) * sizeof(int32_t), handle.mempool, handle.cudaStream);
-  int32_t rank = hyacinXGinterp(handle, 'A', epi, N, K, oversampling, Atype, R, ldr, (int32_t*)piv, Gtype, G, N);
+  int32_t rank = hyacinXGinterp(&handle, 'A', epi, N, K, Atype, R, ldr, (int32_t*)piv, Gtype, G, N);
   cudaMemcpyAsync(jpiv, piv, int64_t(N) * sizeof(int32_t), cudaMemcpyDefault, handle.cudaStream);
   cudaFreeAsync(G, handle.cudaStream); cudaFreeAsync(piv, handle.cudaStream);
 
-  double eventMs[2]{ 'D', 'R' }; hyacinSync_TimerSegments(handle, eventMs, 2);
+  double eventMs[2]{ 'D', 'R' }; hyacinSync_TimerSegments(&handle, eventMs, 2);
   kernel_time += eventMs[0] + eventMs[1];
   return rank;
 }
@@ -64,9 +64,9 @@ template <class T> inline void run(char prec, char algo, double epi, int32_t u_c
   cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);
 
   hyacinHandle_t handle;
-  hyacinCreate(&handle, 1);
+  hyacinCreate(&handle); handle_param_overwrite(&handle, algo, batchK, u_corr, g_corr, 0, oversampling);
 
-  int32_t rank = id_hyac(handle, algo, epi, u_corr, g_corr, oversampling, batchK, batchIter, M, N, N, d_A, M, ipiv.data(), d_X, N);
+  int32_t rank = id_hyac(handle, epi, batchIter, M, N, N, d_A, M, ipiv.data(), d_X, N);
   cudaStreamSynchronize(handle.cudaStream);
 
   std::vector<T> matX(N * N);
@@ -79,9 +79,9 @@ template <class T> inline void run(char prec, char algo, double epi, int32_t u_c
   kernel_time = 0.;
 
   for (int32_t i = 0; i < kernel_runs; ++i)
-    rank = id_hyac(handle, algo, epi, u_corr, g_corr, oversampling, batchK, batchIter, M, N, N, d_A, M, ipiv.data(), d_X, N);
+    rank = id_hyac(handle, epi, batchIter, M, N, N, d_A, M, ipiv.data(), d_X, N);
 
-  hyacinDestroy(handle);
+  hyacinDestroy(&handle);
   cudaFree(d_A);
   cudaFree(d_X);
 

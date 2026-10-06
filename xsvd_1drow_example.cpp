@@ -28,10 +28,10 @@ template <class T, class R> inline void run(char prec, char algo, double epi, in
   ncclComm_t comm;
 
   ncclCommInitRank(&comm, tile_m, id, grid_row);
-  hyacinCreate2D(&handle, comm, nullptr, 1);
+  hyacinCreate2D(&handle, comm, nullptr); handle_param_overwrite(&handle, algo, batchK, u_corr, g_corr, jacobi_sweeps, oversampling);
 
   int32_t* d_barrier = nullptr; cudaMalloc((void**)(&d_barrier), 5 * sizeof(double));
-  int32_t rank = svd_fit_transform(handle, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, lM, gM, N, K, d_A, lM, d_U, lM, d_S, d_V, N, N);
+  int32_t rank = svd_fit_transform(handle, epi, batchIter, lM, gM, N, K, d_A, lM, d_U, lM, d_S, d_V, N, N);
 
   std::vector<T> matU(lM * K), matV(K * N);
   cudaMemcpy(matU.data(), d_U, lM * K * sizeof(T), cudaMemcpyDeviceToHost);
@@ -42,7 +42,7 @@ template <class T, class R> inline void run(char prec, char algo, double epi, in
   kernel_time = rep_time = comm_time = 0.;
 
   for (int32_t i = 0; i < kernel_runs; ++i)
-    rank = svd_fit_transform(handle, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, lM, gM, N, K, d_A, lM, d_U, lM, d_S, d_V, N, N);
+    rank = svd_fit_transform(handle, epi, batchIter, lM, gM, N, K, d_A, lM, d_U, lM, d_S, d_V, N, N);
 
   double ret[5]{ kernel_time, rep_time, comm_time, check_answer_svd(lM, N, rank, &matU[0], lM, &matV[0], N, &matA[0], lM), fnorm(lM, N, &matA[0], lM) };
   cudaMemcpy(d_barrier, ret, 5 * sizeof(double), cudaMemcpyHostToDevice);
@@ -52,7 +52,7 @@ template <class T, class R> inline void run(char prec, char algo, double epi, in
   double div = 1. / double(tile_m * kernel_runs); kernel_time = ret[0] * div; rep_time = ret[1] * div; comm_time = ret[2] * div;
   double err = ret[4] == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(ret[3] / ret[4]);
 
-  hyacinDestroy(handle);
+  hyacinDestroy(&handle);
   ncclCommDestroy(comm);
   std::vector<R> vecS(K);
   cudaMemcpy(vecS.data(), d_S, K * sizeof(R), cudaMemcpyDeviceToHost);

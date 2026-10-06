@@ -21,9 +21,9 @@ template <class T, class R> inline void run(char prec, char algo, double epi, in
   cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);
 
   hyacinHandle_t handle;
-  hyacinCreate(&handle, 1);
+  hyacinCreate(&handle); handle_param_overwrite(&handle, algo, batchK, u_corr, g_corr, jacobi_sweeps, oversampling);
 
-  int32_t rank = svd_fit_transform(handle, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, M, M, N, K, d_A, M, d_U, M, d_S, d_V, N, N);
+  int32_t rank = svd_fit_transform(handle, epi, batchIter, M, M, N, K, d_A, M, d_U, M, d_S, d_V, N, N);
 
   std::vector<T> matU(M * K), matV(K * N);
   cudaMemcpy(matU.data(), d_U, M * K * sizeof(T), cudaMemcpyDeviceToHost);
@@ -34,9 +34,9 @@ template <class T, class R> inline void run(char prec, char algo, double epi, in
   kernel_time = 0.;
 
   for (int32_t i = 0; i < kernel_runs; ++i)
-    rank = svd_fit_transform(handle, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, M, M, N, K, d_A, M, d_U, M, d_S, d_V, N, N);
+    rank = svd_fit_transform(handle, epi, batchIter, M, M, N, K, d_A, M, d_U, M, d_S, d_V, N, N);
 
-  hyacinDestroy(handle);
+  hyacinDestroy(&handle);
   std::vector<R> vecS(K);
   cudaMemcpy(vecS.data(), d_S, K * sizeof(R), cudaMemcpyDeviceToHost);
   cudaFree(d_A); cudaFree(d_U); cudaFree(d_S); cudaFree(d_V);
