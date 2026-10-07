@@ -201,21 +201,30 @@ void handle_param_overwrite(hyacinHandle_t* handle, char algo, int32_t batchK, i
 extern "C" void dgemm_(const char*, const char*, const blas_int*, const blas_int*, const blas_int*, const double*, const double*, const blas_int*, const double*, const blas_int*, const double*, double*, const blas_int*);
 extern "C" void zgemm_(const char*, const char*, const blas_int*, const blas_int*, const blas_int*, const void*, const void*, const blas_int*, const void*, const blas_int*, const void*, void*, const blas_int*);
 inline void nngemm(blas_int M, blas_int N, blas_int K, const double* A, blas_int lda, const double* B, blas_int ldb, double* C, blas_int ldc)
-{ char transa = 'N', transb = 'T'; double one = 1., minus_one = -1.; dgemm_(&transa, &transb, &M, &N, &K, &one, A, &lda, B, &ldb, &minus_one, C, &ldc); }
+{ char transa = 'N', transb = 'T'; double one = 1., minus_one = -1.; dgemm_(&transa, &transb, &M, &N, &K, &minus_one, A, &lda, B, &ldb, &one, C, &ldc); }
 inline void nngemm(blas_int M, blas_int N, blas_int K, const std::complex<double>* A, blas_int lda, const std::complex<double>* B, blas_int ldb, std::complex<double>* C, blas_int ldc)
-{ char transa = 'N', transb = 'C'; std::complex<double> one(1., 0.), minus_one(-1., 0.); zgemm_(&transa, &transb, &M, &N, &K, &one, A, &lda, B, &ldb, &minus_one, C, &ldc); }
+{ char transa = 'N', transb = 'C'; std::complex<double> one(1., 0.), minus_one(-1., 0.); zgemm_(&transa, &transb, &M, &N, &K, &minus_one, A, &lda, B, &ldb, &one, C, &ldc); }
 
 template <class T>
 double check_answer_svd(int32_t M, int32_t N, int32_t rank, const T* U, int32_t ldu, const T* V, int32_t ldv, const T* B, int32_t ldb) {
   if (rank <= 0 || M <= 0 || N <= 0) { return 0.; }
   constexpr int32_t Complex = std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, __half2>;
   using type = typename std::conditional<Complex, std::complex<double>, double>::type;
-  std::vector<type> matU(M * rank), matV(N * rank), matB(M * N);
-  copy2d(M, rank, U, ldu, &matU[0], M);
-  copy2d(N, rank, V, ldv, &matV[0], N);
-  copy2d(M, N, B, ldb, &matB[0], M);
-  nngemm(M, N, rank, &matU[0], M, &matV[0], N, &matB[0], M);
-  double err = std::transform_reduce(matB.begin(), matB.end(), 0., std::plus<double>(), [](auto i) { return std::norm(i); });
+  double err = 0.; constexpr int32_t block = 512;
+  std::vector<type> matB(block * block), matU(block * block), matV(block * block); 
+  for (int32_t i = 0; i < M; i += block) {
+    int32_t rows = std::min(M - i, block);
+    for (int32_t j = 0; j < N; j += block) {
+      int32_t cols = std::min(N - j, block);
+      copy2d(rows, cols, &B[int64_t(i) + int64_t(j) * int64_t(ldb)], ldb, &matB[0], rows);
+      for (int32_t k = 0; k < rank; k += block) {
+        int32_t reduc = std::min(rank - k, block);
+        copy2d(rows, reduc, &U[int64_t(i) + int64_t(k) * int64_t(ldu)], ldu, &matU[0], block); copy2d(cols, reduc, &V[int64_t(j) + int64_t(k) * int64_t(ldu)], ldv, &matV[0], block);
+        nngemm(rows, cols, reduc, &matU[0], block, &matV[0], block, &matB[0], rows);
+      }
+      err = std::transform_reduce(matB.begin(), matB.begin() + int64_t(rows) * int64_t(cols), err, std::plus<double>(), [](auto i) { return std::norm(i); });
+    }
+  }
   return err;
 }
 
@@ -224,9 +233,17 @@ double fnorm(int32_t M, int32_t N, const T* A, int32_t lda) {
   if (M <= 0 || N <= 0) { return 0.; }
   constexpr int32_t Complex = std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, __half2>;
   using type = typename std::conditional<Complex, std::complex<double>, double>::type;
-  std::vector<type> matA(M * N);
-  copy2d(M, N, A, lda, &matA[0], M);
-  return std::transform_reduce(matA.begin(), matA.end(), 0., std::plus<double>(), [](auto i) { return std::norm(i); });
+  double nrm = 0.; constexpr int32_t block = 512;
+  std::vector<type> matA(block * block); 
+  for (int32_t i = 0; i < M; i += block) {
+    int32_t rows = std::min(M - i, block);
+    for (int32_t j = 0; j < N; j += block) {
+      int32_t cols = std::min(N - j, block);
+      copy2d(rows, cols, &A[int64_t(i) + int64_t(j) * int64_t(lda)], lda, &matA[0], block);
+      nrm = std::transform_reduce(matA.begin(), matA.begin() + int64_t(rows) * int64_t(cols), nrm, std::plus<double>(), [](auto i) { return std::norm(i); });
+    }
+  }
+  return nrm;
 }
 
 template <class T> inline hyacinPrecision_t __precA();
