@@ -265,7 +265,7 @@ int32_t svd_fit_transform(hyacinHandle_t handle, double epi, int32_t batchIter, 
 
   uint64_t* C = nullptr; cudaMallocFromPoolAsync((void**)&C, uint64_t(cPanels) * uint64_t(lPanels) * strideC * sizeof(uint64_t), handle.mempool, handle.cudaStream);
   if (handle.BatchK <= 0) { hyacinXherk(&handle, M, N, Atype, A, lda, u, vexp, 0, lPanels, C); } else {
-    int8_t* Bdata = nullptr; hyacinXherkBatchCreate(&handle, epi, N, Atype, &Bbytes);
+    int8_t* Bdata = nullptr; hyacinXherkBatchInit(&handle, epi, N, Atype, &Bbytes);
     cudaMallocFromPoolAsync((void**)&Bdata, Bbytes, handle.mempool, handle.cudaStream);
 
     int32_t beta = 0, iter = std::min(batchIter, handle.BatchK);
