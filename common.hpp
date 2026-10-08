@@ -219,7 +219,7 @@ double check_answer_svd(int32_t M, int32_t N, int32_t rank, const T* U, int32_t 
       copy2d(rows, cols, &B[int64_t(i) + int64_t(j) * int64_t(ldb)], ldb, &matB[0], rows);
       for (int32_t k = 0; k < rank; k += block) {
         int32_t reduc = std::min(rank - k, block);
-        copy2d(rows, reduc, &U[int64_t(i) + int64_t(k) * int64_t(ldu)], ldu, &matU[0], block); copy2d(cols, reduc, &V[int64_t(j) + int64_t(k) * int64_t(ldu)], ldv, &matV[0], block);
+        copy2d(rows, reduc, &U[int64_t(i) + int64_t(k) * int64_t(ldu)], ldu, &matU[0], block); copy2d(cols, reduc, &V[int64_t(j) + int64_t(k) * int64_t(ldv)], ldv, &matV[0], block);
         nngemm(rows, cols, reduc, &matU[0], block, &matV[0], block, &matB[0], rows);
       }
       err = std::transform_reduce(matB.begin(), matB.begin() + int64_t(rows) * int64_t(cols), err, std::plus<double>(), [](auto i) { return std::norm(i); });
@@ -239,24 +239,24 @@ double fnorm(int32_t M, int32_t N, const T* A, int32_t lda) {
     int32_t rows = std::min(M - i, block);
     for (int32_t j = 0; j < N; j += block) {
       int32_t cols = std::min(N - j, block);
-      copy2d(rows, cols, &A[int64_t(i) + int64_t(j) * int64_t(lda)], lda, &matA[0], block);
+      copy2d(rows, cols, &A[int64_t(i) + int64_t(j) * int64_t(lda)], lda, &matA[0], rows);
       nrm = std::transform_reduce(matA.begin(), matA.begin() + int64_t(rows) * int64_t(cols), nrm, std::plus<double>(), [](auto i) { return std::norm(i); });
     }
   }
   return nrm;
 }
 
-template <class T> inline hyacinPrecision_t __precA();
-template <> inline hyacinPrecision_t __precA<double>() { return HYACIN_F64; };
-template <> inline hyacinPrecision_t __precA<float>() { return HYACIN_F32; };
-template <> inline hyacinPrecision_t __precA<__half>() { return HYACIN_F16; };
-template <> inline hyacinPrecision_t __precA<std::complex<double>>() { return HYACIN_F64_COMPLEX; };
-template <> inline hyacinPrecision_t __precA<std::complex<float>>() { return HYACIN_F32_COMPLEX; };
-template <> inline hyacinPrecision_t __precA<__half2>() { return HYACIN_F16_COMPLEX; };
+template <class T> inline hyacinPrecision_t hyacin_prec();
+template <> inline hyacinPrecision_t hyacin_prec<double>() { return HYACIN_F64; };
+template <> inline hyacinPrecision_t hyacin_prec<float>() { return HYACIN_F32; };
+template <> inline hyacinPrecision_t hyacin_prec<__half>() { return HYACIN_F16; };
+template <> inline hyacinPrecision_t hyacin_prec<std::complex<double>>() { return HYACIN_F64_COMPLEX; };
+template <> inline hyacinPrecision_t hyacin_prec<std::complex<float>>() { return HYACIN_F32_COMPLEX; };
+template <> inline hyacinPrecision_t hyacin_prec<__half2>() { return HYACIN_F16_COMPLEX; };
 
 template <class T, class R>
 int32_t svd_fit_transform(hyacinHandle_t handle, double epi, int32_t batchIter, int32_t M, int32_t gM, int32_t N, int32_t K, const T* A, int32_t lda, T* U, int32_t ldu, R* S, T* V, int32_t ldv, int32_t Mv, int32_t Nv = 0, int32_t lcol_offset = 0) {
-  hyacinPrecision_t Atype = __precA<T>(), Gtype;
+  hyacinPrecision_t Atype = hyacin_prec<T>(), Gtype;
   int32_t* vexp = nullptr, u, cPanels, lPanels, gElemBytes; uint64_t strideC, Bbytes;
   cudaMallocFromPoolAsync((void**)&vexp, uint64_t(N) * sizeof(int32_t), handle.mempool, handle.cudaStream);
   hyacinXGautoType(&handle, epi, gM, N, Atype, &u, &cPanels, &lPanels, &strideC, &Gtype, &gElemBytes);

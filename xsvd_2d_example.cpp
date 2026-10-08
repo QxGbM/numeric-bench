@@ -37,7 +37,7 @@ template <class T, class R> inline void run(char prec, char algo, double epi, in
 
   int32_t* d_barrier = nullptr; cudaMalloc((void**)(&d_barrier), 5 * sizeof(double));
   int32_t r1 = svd_fit_transform(handle, epi, batchIter, lM, gM, lN, K, d_A, lM, d_U, lM, d_S, d_V, lN, lN), N2 = r1;
-  int32_t offset = hyacinXAllGatherV1Dcol(&handle, lM, &N2, int32_t(sizeof(T)), d_U, lM);
+  int32_t offset = hyacinXAllGatherV1Dcol(&handle, lM, &N2, hyacin_prec<T>(), d_U, lM);
   int32_t r2 = svd_fit_transform(handle, epi, batchIter, lM, gM, N2, K, d_U, lM, d_U, lM, d_S, d_V, lN, lN, r1, offset);
 
   std::vector<T> matU(lM * K), matV(K * lN);
@@ -50,13 +50,13 @@ template <class T, class R> inline void run(char prec, char algo, double epi, in
 
   for (int32_t i = 0; i < kernel_runs; ++i) {
     N2 = r1 = svd_fit_transform(handle, epi, batchIter, lM, gM, lN, K, d_A, lM, d_U, lM, d_S, d_V, lN, lN);
-    offset = hyacinXAllGatherV1Dcol(&handle, lM, &N2, int32_t(sizeof(T)), d_U, lM);
+    offset = hyacinXAllGatherV1Dcol(&handle, lM, &N2, hyacin_prec<T>(), d_U, lM);
     r2 = svd_fit_transform(handle, epi, batchIter, lM, gM, N2, K, d_U, lM, d_U, lM, d_S, d_V, lN, lN, r1, offset);
   }
 
   double ret[5]{ kernel_time, rep_time, comm_time, check_answer_svd(lM, lN, r2, &matU[0], lM, &matV[0], lN, &matA[0], lM), fnorm(lM, lN, &matA[0], lM) };
   cudaMemcpy(d_barrier, ret, 5 * sizeof(double), cudaMemcpyHostToDevice);
-  ncclAllReduce(d_barrier, d_barrier, 5, ncclDouble, ncclSum, comm, handle.cudaStream);
+  ncclAllReduce(d_barrier, d_barrier, 3, ncclDouble, ncclSum, comm, handle.cudaStream);
   cudaStreamSynchronize(handle.cudaStream);
   cudaMemcpy(ret, d_barrier, 5 * sizeof(double), cudaMemcpyDeviceToHost);
   double div = 1. / double(tile_m * tile_n * kernel_runs); kernel_time = ret[0] * div; rep_time = ret[1] * div; comm_time = ret[2] * div;
