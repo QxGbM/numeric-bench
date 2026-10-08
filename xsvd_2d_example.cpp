@@ -3,7 +3,7 @@
 #include <iostream>
 #include <chrono>
 
-template <class T, class R> inline void run(char prec, char algo, double epi, int32_t jacobi_sweeps, int32_t u_corr, int32_t g_corr, int32_t oversampling, int32_t batchK, int32_t batchIter,
+template <class T, class R> inline void run(char prec, double epi, int32_t batchIter,
   int64_t gM, int64_t gN, int64_t K, int64_t mb, int64_t nb, int32_t grid_row, int32_t grid_col, int32_t tile_m, int32_t tile_n, ncclUniqueId id, const std::string& file) {
   int64_t gK = K * tile_n;
   int64_t lM = mb * (gM / (mb * tile_m));
@@ -33,7 +33,7 @@ template <class T, class R> inline void run(char prec, char algo, double epi, in
   ncclCommInitRank(&comm, tile_m * tile_n, id, grid_row + grid_col * tile_m);
   ncclCommSplit(comm, grid_row, grid_col, &comm_row, nullptr);
   ncclCommSplit(comm, grid_col, grid_row, &comm_col, nullptr);
-  hyacinCreate2D(&handle, comm_col, comm_row); handle_param_overwrite(&handle, algo, batchK, u_corr, g_corr, jacobi_sweeps, oversampling);
+  hyacinCreate2D(&handle, comm_col, comm_row);
 
   int32_t* d_barrier = nullptr; cudaMalloc((void**)(&d_barrier), 5 * sizeof(double));
   int32_t r1 = svd_fit_transform(handle, epi, batchIter, lM, gM, lN, K, d_A, lM, d_U, lM, d_S, d_V, lN, lN), N2 = r1;
@@ -56,7 +56,7 @@ template <class T, class R> inline void run(char prec, char algo, double epi, in
 
   double ret[5]{ kernel_time, rep_time, comm_time, check_answer_svd(lM, lN, r2, &matU[0], lM, &matV[0], lN, &matA[0], lM), fnorm(lM, lN, &matA[0], lM) };
   cudaMemcpy(d_barrier, ret, 5 * sizeof(double), cudaMemcpyHostToDevice);
-  ncclAllReduce(d_barrier, d_barrier, 3, ncclDouble, ncclSum, comm, handle.cudaStream);
+  ncclAllReduce(d_barrier, d_barrier, 5, ncclDouble, ncclSum, comm, handle.cudaStream);
   cudaStreamSynchronize(handle.cudaStream);
   cudaMemcpy(ret, d_barrier, 5 * sizeof(double), cudaMemcpyDeviceToHost);
   double div = 1. / double(tile_m * tile_n * kernel_runs); kernel_time = ret[0] * div; rep_time = ret[1] * div; comm_time = ret[2] * div;
@@ -106,6 +106,7 @@ int32_t main(int32_t argc, char* argv[]) {
   }
 
   gN = std::min(gM, gN); K = std::min(gN, K);
+  handle_param_environments(algo, batchK, u_corr, g_corr, jacobi_sweeps, oversampling);
 
   int32_t world_rank, world_size, local_rank; ncclUniqueId id;
   //bootstrap_mpi(world_rank, local_rank, world_size, id);
@@ -122,12 +123,12 @@ int32_t main(int32_t argc, char* argv[]) {
   { std::cerr << cudaGetErrorString(cu_err) << std::endl; return -1; }
 
   switch(prec) {
-    case 'D': run<double, double>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, gM, gN, K, mb, nb, grid_row, grid_col, tile_m, tile_n, id, file); break;
-    case 'S': run<float, float>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, gM, gN, K, mb, nb, grid_row, grid_col, tile_m, tile_n, id, file); break;
-    case 'H': run<__half, __half>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, gM, gN, K, mb, nb, grid_row, grid_col, tile_m, tile_n, id, file); break;
-    case 'Z': run<std::complex<double>, double>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, gM, gN, K, mb, nb, grid_row, grid_col, tile_m, tile_n, id, file); break;
-    case 'C': run<std::complex<float>, float>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, gM, gN, K, mb, nb, grid_row, grid_col, tile_m, tile_n, id, file); break;
-    case 'J': run<__half2, __half>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, gM, gN, K, mb, nb, grid_row, grid_col, tile_m, tile_n, id, file); break;
+    case 'D': run<double, double>(prec, epi, batchIter, gM, gN, K, mb, nb, grid_row, grid_col, tile_m, tile_n, id, file); break;
+    case 'S': run<float, float>(prec, epi, batchIter, gM, gN, K, mb, nb, grid_row, grid_col, tile_m, tile_n, id, file); break;
+    case 'H': run<__half, __half>(prec, epi, batchIter, gM, gN, K, mb, nb, grid_row, grid_col, tile_m, tile_n, id, file); break;
+    case 'Z': run<std::complex<double>, double>(prec, epi, batchIter, gM, gN, K, mb, nb, grid_row, grid_col, tile_m, tile_n, id, file); break;
+    case 'C': run<std::complex<float>, float>(prec, epi, batchIter, gM, gN, K, mb, nb, grid_row, grid_col, tile_m, tile_n, id, file); break;
+    case 'J': run<__half2, __half>(prec, epi, batchIter, gM, gN, K, mb, nb, grid_row, grid_col, tile_m, tile_n, id, file); break;
     default: break;
   }
 

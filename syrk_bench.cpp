@@ -49,7 +49,7 @@ void syrk_hyac(hyacinHandle_t handle, double epi, int32_t batchIter, int32_t M, 
   kernel_time += eventMs[0] + eventMs[1];
 }
 
-template <class T> inline void run(char prec, char algo, double epi, int32_t u_corr, int32_t batchK, int32_t batchIter, int64_t M, int64_t N) {
+template <class T> inline void run(char prec, double epi, int32_t batchIter, int64_t M, int64_t N) {
   std::vector<T> matA(M * N);
   matrix_generator<T>(1., M, N).generate_block(512, 512, &matA[0], M);
 
@@ -62,7 +62,7 @@ template <class T> inline void run(char prec, char algo, double epi, int32_t u_c
   cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);
 
   hyacinHandle_t handle;
-  hyacinCreate(&handle); handle_param_overwrite(&handle, algo, batchK, u_corr, 0, 0, 0);
+  hyacinCreate(&handle);
 
   syrk_hyac(handle, epi, batchIter, M, N, d_A, M, d_X, N);
 
@@ -108,6 +108,7 @@ int32_t main(int32_t argc, char* argv[]) {
     else { std::cerr << "Ignored parameter: " << argv[i] << std::endl; }
   }
   N = std::min(M, N);
+  handle_param_environments(algo, batchK, u_corr, 0, 0, 0);
 
   auto cu_err = cudaSetDevice(0);
   cudaDeviceReset();
@@ -115,12 +116,12 @@ int32_t main(int32_t argc, char* argv[]) {
   { std::cerr << cudaGetErrorString(cu_err) << std::endl; return -1; }
 
   switch(prec) {
-    case 'D': run<double>(prec, algo, epi, u_corr, batchK, batchIter, M, N); break;
-    case 'S': run<float>(prec, algo, epi, u_corr, batchK, batchIter, M, N); break;
-    case 'H': run<__half>(prec, algo, epi, u_corr, batchK, batchIter, M, N); break;
-    case 'Z': run<std::complex<double>>(prec, algo, epi, u_corr, batchK, batchIter, M, N); break;
-    case 'C': run<std::complex<float>>(prec, algo, epi, u_corr, batchK, batchIter, M, N); break;
-    case 'J': run<__half2>(prec, algo, epi, u_corr, batchK, batchIter, M, N); break;
+    case 'D': run<double>(prec, epi, batchIter, M, N); break;
+    case 'S': run<float>(prec, epi, batchIter, M, N); break;
+    case 'H': run<__half>(prec, epi, batchIter, M, N); break;
+    case 'Z': run<std::complex<double>>(prec, epi, batchIter, M, N); break;
+    case 'C': run<std::complex<float>>(prec, epi, batchIter, M, N); break;
+    case 'J': run<__half2>(prec, epi, batchIter, M, N); break;
     default: break;
   }
 

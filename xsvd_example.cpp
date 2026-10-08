@@ -3,7 +3,7 @@
 #include <iostream>
 #include <chrono>
 
-template <class T, class R> inline void run(char prec, char algo, double epi, int32_t jacobi_sweeps, int32_t u_corr, int32_t g_corr, int32_t oversampling, int32_t batchK, int32_t batchIter, int64_t M, int64_t N, int64_t K, const std::string& file) {
+template <class T, class R> inline void run(char prec, double epi, int32_t batchIter, int64_t M, int64_t N, int64_t K, const std::string& file) {
   std::vector<T> matA(M * N);
   if (!file.empty())
     matrix_from_row_major_csv(M, N, 512, 512, matA.data(), M, file);
@@ -21,21 +21,23 @@ template <class T, class R> inline void run(char prec, char algo, double epi, in
   cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);
 
   hyacinHandle_t handle;
-  hyacinCreate(&handle); handle_param_overwrite(&handle, algo, batchK, u_corr, g_corr, jacobi_sweeps, oversampling);
+  hyacinCreate(&handle);
+  int32_t rank = hyacinLRA::svd_fit_transform(&handle, epi, M, N, K, d_A, M, d_U, M, d_S, d_V, N, M, batchIter);
 
-  int32_t rank = svd_fit_transform(handle, epi, batchIter, M, M, N, K, d_A, M, d_U, M, d_S, d_V, N, N);
-
+  hyacinSync_TimerSegments(&handle, nullptr, 0);
   std::vector<T> matU(M * K), matV(K * N);
   cudaMemcpy(matU.data(), d_U, M * K * sizeof(T), cudaMemcpyDeviceToHost);
   cudaMemcpy(matV.data(), d_V, K * N * sizeof(T), cudaMemcpyDeviceToHost);
 
-  double nrm = fnorm(M, N, &matA[0], M);
-  double err = nrm == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(check_answer_svd(M, N, rank, &matU[0], M, &matV[0], N, &matA[0], M) / nrm);
-  kernel_time = 0.;
+  double nrm = hyacinLRA::check_lra_answer(&handle, M, N, d_A, M);
+  double err = nrm == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(hyacinLRA::check_lra_answer(&handle, M, N, d_A, M, rank, d_U, M, d_V, N) / nrm);
+  double kernel_time = 0.;
 
   for (int32_t i = 0; i < kernel_runs; ++i)
-    rank = svd_fit_transform(handle, epi, batchIter, M, M, N, K, d_A, M, d_U, M, d_S, d_V, N, N);
+    rank = hyacinLRA::svd_fit_transform(&handle, epi, M, N, K, d_A, M, d_U, M, d_S, d_V, N, M, batchIter);
 
+  double eventMs[2]{ 'D', 'R' }; hyacinSync_TimerSegments(&handle, eventMs, 2);
+  kernel_time += eventMs[0] + eventMs[1];
   hyacinDestroy(&handle);
   std::vector<R> vecS(K);
   cudaMemcpy(vecS.data(), d_S, K * sizeof(R), cudaMemcpyDeviceToHost);
@@ -71,6 +73,7 @@ int32_t main(int32_t argc, char* argv[]) {
     else { std::cerr << "Ignored parameter: " << argv[i] << std::endl; }
   }
   N = std::min(M, N); K = std::min(N, K);
+  handle_param_environments(algo, batchK, u_corr, g_corr, jacobi_sweeps, oversampling);
 
   auto cu_err = cudaSetDevice(0);
   cudaDeviceReset();
@@ -78,12 +81,12 @@ int32_t main(int32_t argc, char* argv[]) {
   { std::cerr << cudaGetErrorString(cu_err) << std::endl; return -1; }
 
   switch(prec) {
-    case 'D': run<double, double>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, M, N, K, file); break;
-    case 'S': run<float, float>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, M, N, K, file); break;
-    case 'H': run<__half, __half>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, M, N, K, file); break;
-    case 'Z': run<std::complex<double>, double>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, M, N, K, file); break;
-    case 'C': run<std::complex<float>, float>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, M, N, K, file); break;
-    case 'J': run<__half2, __half>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, M, N, K, file); break;
+    case 'D': run<double, double>(prec, epi, batchIter, M, N, K, file); break;
+    case 'S': run<float, float>(prec, epi, batchIter, M, N, K, file); break;
+    case 'H': run<__half, __half>(prec, epi, batchIter, M, N, K, file); break;
+    case 'Z': run<cuDoubleComplex, double>(prec, epi, batchIter, M, N, K, file); break;
+    case 'C': run<cuComplex, float>(prec, epi, batchIter, M, N, K, file); break;
+    case 'J': run<__half2, __half>(prec, epi, batchIter, M, N, K, file); break;
     default: break;
   }
 

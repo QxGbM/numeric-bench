@@ -1,6 +1,6 @@
 #pragma once
 
-#include <hyacin.h>
+#include <hyacinLRA.hpp>
 #include <vector>
 #include <array>
 #include <complex>
@@ -20,6 +20,8 @@ const int32_t kernel_runs = 3;
 double kernel_time = 0., rep_time = 0., comm_time = 0.;
 
 template <class T, class S> inline T conv(S x) {
+  if constexpr(std::is_same_v<T, cuDoubleComplex> && std::is_same_v<S, std::complex<double>>) { return make_cuDoubleComplex(x.real(), x.imag()); } else
+  if constexpr(std::is_same_v<T, cuComplex> && std::is_same_v<S, std::complex<double>>) { return make_cuComplex(float(x.real()), float(x.imag())); } else
   if constexpr(std::is_same_v<T, __half2> && std::is_same_v<S, std::complex<double>>) { return make_half2(__double2half(x.real()), __double2half(x.imag())); } else
   if constexpr(std::is_same_v<T, std::complex<double>> && std::is_same_v<S, __half2>) { return std::complex<double>(double(x.x), double(x.y)); } else
   { return T(x); }
@@ -58,11 +60,11 @@ void matrix_from_row_major_csv(int32_t M, int32_t N, int32_t mb, int32_t nb, T* 
         for (int32_t x = 0; x < N; ++x) {
           std::string Ayx(str, std::distance(str, std::find_if(str, end, cmp)));
           int64_t i = int64_t(y) + int64_t(x) * int64_t(rows);
-          if constexpr(std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, __half2>) {
+          if constexpr(std::is_same_v<T, double> || std::is_same_v<T, float> || std::is_same_v<T, __half>) { mat[i] = T(std::stod(Ayx)); } else {
             std::string::size_type l; double rl = std::stod(Ayx, &l);
             try { double im = std::stod(Ayx.substr(l)); mat[i] = conv<T>(std::complex<double>(rl, im)); }
               catch (const std::invalid_argument&) { mat[i] = conv<T>(std::complex<double>(rl, 0.)); }
-          } else { mat[i] = T(std::stod(Ayx)); }
+          }
           str += Ayx.length(); while(cmp(*str)) ++str;
         }
     }
@@ -184,19 +186,14 @@ template <class T> struct matrix_generator {
             double diff_z = bodies[i_loc + int64_t(2)] - pt_j[2];
             double d = std::sqrt(diff_x * diff_x + diff_y * diff_y + diff_z * diff_z);
             int64_t k = (i + y) + (j + x) * int64_t(lda);
-            if constexpr(std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, __half2>)
-            { A[k] = conv<T>(eval_complex(d)); } else { A[k] = T(eval_real(d)); }
+            if constexpr(std::is_same_v<T, double> || std::is_same_v<T, float> || std::is_same_v<T, __half>)
+            { A[k] = T(eval_real(d)); } else { A[k] = conv<T>(eval_complex(d)); }
           }
         }
       }
     }
   }
 };
-
-void handle_param_overwrite(hyacinHandle_t* handle, char algo, int32_t batchK, int32_t u_corr, int32_t g_corr, int32_t jacobi_sweeps, int32_t oversampling) {
-  handle->GramMatrixAlgorithm = algo; handle->BatchK = batchK; handle->QuantizeBitCorrection = u_corr;
-  handle->GramBitCorrection = g_corr; handle->JacobiSVDSweeps = jacobi_sweeps; handle->RankOversampling = oversampling; 
-}
 
 extern "C" void dgemm_(const char*, const char*, const blas_int*, const blas_int*, const blas_int*, const double*, const double*, const blas_int*, const double*, const blas_int*, const double*, double*, const blas_int*);
 extern "C" void zgemm_(const char*, const char*, const blas_int*, const blas_int*, const blas_int*, const void*, const void*, const blas_int*, const void*, const blas_int*, const void*, void*, const blas_int*);
@@ -295,6 +292,15 @@ int32_t svd_fit_transform(hyacinHandle_t handle, double epi, int32_t batchIter, 
   double eventMs[3]{ 'D', 'R', 'C' }; hyacinSync_TimerSegments(&handle, eventMs, 3);
   kernel_time += eventMs[0] + eventMs[1] + eventMs[2]; rep_time += eventMs[1]; comm_time += eventMs[2];
   return rank;
+}
+
+void handle_param_environments(char algo, int32_t batchK, int32_t u_corr, int32_t g_corr, int32_t jacobi_sweeps, int32_t oversampling) {
+  setenv("HYACIN_GRAM_ALGORITHM", std::string(1, algo).c_str(), 1);
+  setenv("HYACIN_BATCH_K", std::to_string(batchK).c_str(), 1);
+  setenv("HYACIN_QUANTIZE_BITS_CORR", std::to_string(u_corr).c_str(), 1);
+  setenv("HYACIN_GRAM_BITS_CORR", std::to_string(g_corr).c_str(), 1);
+  setenv("HYACIN_JACOBI_SVD_SWEEPS", std::to_string(jacobi_sweeps).c_str(), 1);
+  setenv("HYACIN_PRECOND_OVERSAMPLING", std::to_string(oversampling).c_str(), 1);
 }
 
 #ifndef NO_NCCL

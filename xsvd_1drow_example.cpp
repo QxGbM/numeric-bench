@@ -3,7 +3,7 @@
 #include <iostream>
 #include <chrono>
 
-template <class T, class R> inline void run(char prec, char algo, double epi, int32_t jacobi_sweeps, int32_t u_corr, int32_t g_corr, int32_t oversampling, int32_t batchK, int32_t batchIter,
+template <class T, class R> inline void run(char prec, double epi, int32_t batchIter,
   int64_t gM, int64_t N, int64_t K, int64_t mb, int32_t grid_row, int32_t tile_m, ncclUniqueId id, const std::string& file) {
   int64_t lM = mb * (gM / (mb * tile_m));
   lM += std::max(int64_t(0), std::min(mb, gM - lM * tile_m - mb * grid_row));
@@ -28,7 +28,7 @@ template <class T, class R> inline void run(char prec, char algo, double epi, in
   ncclComm_t comm;
 
   ncclCommInitRank(&comm, tile_m, id, grid_row);
-  hyacinCreate2D(&handle, comm, nullptr); handle_param_overwrite(&handle, algo, batchK, u_corr, g_corr, jacobi_sweeps, oversampling);
+  hyacinCreate2D(&handle, comm, nullptr);
 
   int32_t* d_barrier = nullptr; cudaMalloc((void**)(&d_barrier), 5 * sizeof(double));
   int32_t rank = svd_fit_transform(handle, epi, batchIter, lM, gM, N, K, d_A, lM, d_U, lM, d_S, d_V, N, N);
@@ -90,6 +90,7 @@ int32_t main(int32_t argc, char* argv[]) {
     else { std::cerr << "Ignored parameter: " << argv[i] << std::endl; }
   }
   N = std::min(gM, N); K = std::min(N, K);
+  handle_param_environments(algo, batchK, u_corr, g_corr, jacobi_sweeps, oversampling);
 
   int32_t world_rank, world_size, local_rank; ncclUniqueId id;
   //bootstrap_mpi(world_rank, local_rank, world_size, id);
@@ -102,12 +103,12 @@ int32_t main(int32_t argc, char* argv[]) {
   { std::cerr << cudaGetErrorString(cu_err) << std::endl; return -1; }
 
   switch(prec) {
-    case 'D': run<double, double>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
-    case 'S': run<float, float>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
-    case 'H': run<__half, __half>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
-    case 'Z': run<std::complex<double>, double>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
-    case 'C': run<std::complex<float>, float>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
-    case 'J': run<__half2, __half>(prec, algo, epi, jacobi_sweeps, u_corr, g_corr, oversampling, batchK, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
+    case 'D': run<double, double>(prec, epi, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
+    case 'S': run<float, float>(prec, epi, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
+    case 'H': run<__half, __half>(prec, epi, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
+    case 'Z': run<std::complex<double>, double>(prec, epi, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
+    case 'C': run<std::complex<float>, float>(prec, epi, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
+    case 'J': run<__half2, __half>(prec, epi, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
     default: break;
   }
 
