@@ -53,7 +53,7 @@ template <class T, class R> inline void run(char prec, double epi, int32_t batch
 
 int32_t main(int32_t argc, char* argv[]) {
   char prec = 'D', algo = 'A'; std::string file;
-  int64_t M = 2048, N = 2048, K = 2048; int32_t jacobi_sweeps = 30, u_corr = 6, g_corr = -5, oversampling = 10, batchK = 65536, batchIter = 2048;
+  int64_t M = 2048, N = 2048, K = 2048; int32_t jacobi_sweeps = 30, u_corr = 5, g_corr = 0, oversampling = 10, batchK = 65536, batchIter = 2048;
   double epi = 1.e-12;
 
   for (int32_t i = 1; i < argc; ++i) {

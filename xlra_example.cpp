@@ -101,7 +101,7 @@ template <class T> inline void run(char prec, double epi, int32_t batchIter, int
 
 int32_t main(int32_t argc, char* argv[]) {
   char prec = 'D', algo = 'A';
-  int64_t M = 2048, N = 2048; int32_t u_corr = 6, g_corr = -5, oversampling = 10, batchK = 65536, batchIter = 2048;
+  int64_t M = 2048, N = 2048; int32_t u_corr = 5, g_corr = 0, oversampling = 10, batchK = 65536, batchIter = 2048;
   double epi = 1.e-12;
 
   for (int32_t i = 1; i < argc; ++i) {
