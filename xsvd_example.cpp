@@ -16,25 +16,21 @@ template <class T, class R> inline void run(char prec, double epi, int32_t batch
   T* d_A = nullptr, *d_U = nullptr, *d_V = nullptr; R* d_S = nullptr;
   cudaMalloc((void**)(&d_A), M * N * sizeof(T));
   cudaMalloc((void**)(&d_U), M * K * sizeof(T));
-  cudaMalloc((void**)(&d_V), K * N * sizeof(T));
+  cudaMalloc((void**)(&d_V), N * N * sizeof(T));
   cudaMalloc((void**)(&d_S), K * sizeof(R));
   cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);
 
   hyacinHandle_t handle;
   hyacinCreate(&handle);
-  int32_t rank = hyacinLRA::svd_fit_transform(&handle, epi, M, N, K, d_A, M, d_U, M, d_S, d_V, N, M, batchIter);
-
+  int32_t rank = hyacinLRA::svd_fit_transform(&handle, epi, 0, M, N, K, d_A, M, d_U, M, d_S, d_V, N, M, batchIter);
   hyacinSync_TimerSegments(&handle, nullptr, 0);
-  std::vector<T> matU(M * K), matV(K * N);
-  cudaMemcpy(matU.data(), d_U, M * K * sizeof(T), cudaMemcpyDeviceToHost);
-  cudaMemcpy(matV.data(), d_V, K * N * sizeof(T), cudaMemcpyDeviceToHost);
 
   double nrm = hyacinLRA::check_lra_answer(&handle, M, N, d_A, M);
   double err = nrm == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(hyacinLRA::check_lra_answer(&handle, M, N, d_A, M, rank, d_U, M, d_V, N) / nrm);
   double kernel_time = 0.;
 
   for (int32_t i = 0; i < kernel_runs; ++i)
-    rank = hyacinLRA::svd_fit_transform(&handle, epi, M, N, K, d_A, M, d_U, M, d_S, d_V, N, M, batchIter);
+    rank = hyacinLRA::svd_fit_transform(&handle, epi, 0, M, N, K, d_A, M, d_U, M, d_S, d_V, N, M, batchIter);
 
   double eventMs[2]{ 'D', 'R' }; hyacinSync_TimerSegments(&handle, eventMs, 2);
   kernel_time += eventMs[0] + eventMs[1];

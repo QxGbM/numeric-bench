@@ -279,7 +279,7 @@ int32_t svd_fit_transform(hyacinHandle_t handle, double epi, int32_t batchIter, 
   cudaFreeAsync(vexp, handle.cudaStream); cudaFreeAsync(C, handle.cudaStream);
 
   T* X = nullptr; cudaMallocFromPoolAsync((void**)&X, uint64_t(N) * uint64_t(K) * sizeof(T), handle.mempool, handle.cudaStream);
-  int32_t rank = hyacinXGevd(&handle, 'A', epi, N, K, Atype, X, N, S, Gtype, G, N);
+  int32_t rank = hyacinXGevd(&handle, 'A', epi, 1, N, K, Atype, X, N, S, Gtype, G, N);
   cudaFreeAsync(G, handle.cudaStream);
   hyacinXtransform(&handle, M, N, rank, Atype, A, lda, U, ldu, 'F', X, N);
   hyacinXtransform(&handle, Mv, Nv, rank, Atype, V, ldv, V, ldv, 'F', &X[lcol_offset], N);
