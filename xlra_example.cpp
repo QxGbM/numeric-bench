@@ -21,9 +21,9 @@ template <class T>
 int32_t id_hyac(hyacinHandle_t handle, double epi, int32_t batchIter, int32_t M, int32_t N, int32_t K, const T* A, int32_t lda, int32_t* jpiv, T* R, int32_t ldr) {
   hyacinPrecision_t Atype = hyacin_prec<T>(), Gtype;
   int32_t* vexp = nullptr, u, cPanels, lPanels, gElemBytes; uint64_t strideC;
-  cudaMallocFromPoolAsync((void**)&vexp, uint64_t(N) * sizeof(int32_t), handle.mempool, handle.cudaStream);
+  cudaMallocFromPoolAsync((void**)&vexp, uint64_t(2) * uint64_t(N) * sizeof(int32_t), handle.mempool, handle.cudaStream);
   hyacinXherkBatchInit(&handle, epi, M, N, Atype, &u, &cPanels, &lPanels, &strideC, &Gtype, &gElemBytes);
-  hyacinXquantizeScale(&handle, M, N, Atype, A, lda, u, 0, vexp);
+  hyacinXquantizeScaleBatch(&handle, 1, 0, M, N, Atype, A, lda, u, vexp);
 
   uint64_t* C = nullptr; cudaMallocFromPoolAsync((void**)&C, uint64_t(cPanels) * uint64_t(lPanels) * strideC * sizeof(uint64_t), handle.mempool, handle.cudaStream);
   if (handle.BatchK <= 0) { hyacinXherk(&handle, M, N, Atype, A, lda, u, vexp, 0, lPanels, C); } else {

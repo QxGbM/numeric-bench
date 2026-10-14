@@ -33,11 +33,11 @@ template <class T, class R> inline void run(char prec, double epi, int32_t batch
   ncclCommInitRank(&comm, tile_m * tile_n, id, grid_row + grid_col * tile_m);
   ncclCommSplit(comm, grid_row, grid_col, &comm_row, nullptr);
   ncclCommSplit(comm, grid_col, grid_row, &comm_col, nullptr);
-  hyacinCreate2D(&handle, comm_col, comm_row);
+  hyacinCreate(&handle); handle.ncclComm = comm_col;
 
   int32_t* d_barrier = nullptr; cudaMalloc((void**)(&d_barrier), 5 * sizeof(double));
   int32_t r1 = svd_fit_transform(handle, epi, batchIter, lM, gM, lN, K, d_A, lM, d_U, lM, d_S, d_V, lN, lN), N2 = r1;
-  int32_t offset = hyacinXAllGatherV1Dcol(&handle, lM, &N2, hyacin_prec<T>(), d_U, lM);
+  handle.ncclComm = comm_row; int32_t offset = hyacinXAllGatherV1Dcol(&handle, lM, &N2, hyacin_prec<T>(), d_U, lM); handle.ncclComm = comm_col;
   int32_t r2 = svd_fit_transform(handle, epi, batchIter, lM, gM, N2, K, d_U, lM, d_U, lM, d_S, d_V, lN, lN, r1, offset);
 
   std::vector<T> matU(lM * K), matV(K * lN);
@@ -50,7 +50,7 @@ template <class T, class R> inline void run(char prec, double epi, int32_t batch
 
   for (int32_t i = 0; i < kernel_runs; ++i) {
     N2 = r1 = svd_fit_transform(handle, epi, batchIter, lM, gM, lN, K, d_A, lM, d_U, lM, d_S, d_V, lN, lN);
-    offset = hyacinXAllGatherV1Dcol(&handle, lM, &N2, hyacin_prec<T>(), d_U, lM);
+    handle.ncclComm = comm_row; offset = hyacinXAllGatherV1Dcol(&handle, lM, &N2, hyacin_prec<T>(), d_U, lM); handle.ncclComm = comm_col;
     r2 = svd_fit_transform(handle, epi, batchIter, lM, gM, N2, K, d_U, lM, d_U, lM, d_S, d_V, lN, lN, r1, offset);
   }
 

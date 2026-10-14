@@ -28,7 +28,7 @@ template <class T, class R> inline void run(char prec, double epi, int32_t batch
   ncclComm_t comm;
 
   ncclCommInitRank(&comm, tile_m, id, grid_row);
-  hyacinCreate2D(&handle, comm, nullptr);
+  hyacinCreate(&handle); handle.ncclComm = comm;
 
   int32_t* d_barrier = nullptr; cudaMalloc((void**)(&d_barrier), 5 * sizeof(double));
   int32_t rank = svd_fit_transform(handle, epi, batchIter, lM, gM, N, K, d_A, lM, d_U, lM, d_S, d_V, N, N);
