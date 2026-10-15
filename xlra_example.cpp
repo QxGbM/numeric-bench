@@ -26,17 +26,7 @@ int32_t id_hyac(hyacinHandle_t handle, double epi, int32_t batchIter, int32_t M,
   hyacinXquantizeScaleBatch(&handle, 1, 0, M, N, Atype, A, lda, u, vexp);
 
   uint64_t* C = nullptr; cudaMallocFromPoolAsync((void**)&C, uint64_t(cPanels) * uint64_t(lPanels) * strideC * sizeof(uint64_t), handle.mempool, handle.cudaStream);
-  if (handle.BatchK <= 0) { hyacinXherk(&handle, M, N, Atype, A, lda, u, vexp, 0, lPanels, C); } else {
-    int32_t beta = 0, iter = std::min(batchIter, handle.BatchK);
-    int64_t strideA = int64_t(lda) * int64_t(sizeof(T)), strideB = int64_t(handle.BatchK) * int64_t(sizeof(T));
-    void* Arena = hyacinXherkBatch(&handle, 0, iter, N, Atype, vexp, &beta, lPanels, C);
-    for (int32_t i = 0; i < M; i += iter) {
-      int32_t rows = std::min(M - i, iter);
-      cudaMemcpy2DAsync(Arena, strideB, &A[i], strideA, int64_t(rows) * int64_t(sizeof(T)), N, cudaMemcpyDeviceToDevice, handle.cudaStream);
-      Arena = hyacinXherkBatch(&handle, rows, iter, N, Atype, vexp, &beta, lPanels, C);
-    }
-    hyacinXherkBatchFlush(&handle, N, Atype, vexp, beta, lPanels, C);
-  }
+  hyacinXherkBatch(&handle, 1, 0, M, N, Atype, A, lda, u, vexp, 0, lPanels, C);
 
   void* G = nullptr; cudaMallocFromPoolAsync((void**)&G, uint64_t(N) * uint64_t(N) * uint64_t(gElemBytes), handle.mempool, handle.cudaStream);
   hyacinXdequantize(&handle, N, lPanels, C, vexp, Gtype, G, N);
