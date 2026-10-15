@@ -23,6 +23,7 @@ template <class T, class R> inline void run(char prec, double epi, int32_t batch
   cudaMalloc((void**)(&d_V), K * N * sizeof(T));
   cudaMalloc((void**)(&d_S), K * sizeof(R));
   cudaMemcpy(d_A, matA.data(), lM * N * sizeof(T), cudaMemcpyHostToDevice);
+  int32_t* d_barrier = nullptr; cudaMalloc((void**)(&d_barrier), 5 * sizeof(double));
 
   hyacinHandle_t handle;
   ncclComm_t comm;
@@ -30,21 +31,17 @@ template <class T, class R> inline void run(char prec, double epi, int32_t batch
   ncclCommInitRank(&comm, tile_m, id, grid_row);
   hyacinCreate(&handle); handle.ncclComm = comm;
 
-  int32_t* d_barrier = nullptr; cudaMalloc((void**)(&d_barrier), 5 * sizeof(double));
-  int32_t rank = svd_fit_transform(handle, epi, batchIter, lM, gM, N, K, d_A, lM, d_U, lM, d_S, d_V, N, N);
-
-  std::vector<T> matU(lM * K), matV(K * N);
-  cudaMemcpy(matU.data(), d_U, lM * K * sizeof(T), cudaMemcpyDeviceToHost);
-  cudaMemcpy(matV.data(), d_V, K * N * sizeof(T), cudaMemcpyDeviceToHost);
+  int32_t rank = hyacinLRA::svd_fit_transform(&handle, epi, 1, lM, N, K, d_A, lM, d_U, lM, d_S, d_V, N, gM, batchIter);
+  hyacinSync_TimerSegments(&handle, nullptr, 0);
 
   ncclAllReduce(d_barrier, d_barrier, 1, ncclInt32, ncclMin, comm, handle.cudaStream);
   cudaStreamSynchronize(handle.cudaStream);
-  kernel_time = rep_time = comm_time = 0.;
-
   for (int32_t i = 0; i < kernel_runs; ++i)
-    rank = svd_fit_transform(handle, epi, batchIter, lM, gM, N, K, d_A, lM, d_U, lM, d_S, d_V, N, N);
+    rank = hyacinLRA::svd_fit_transform(&handle, epi, 1, lM, N, K, d_A, lM, d_U, lM, d_S, d_V, N, gM, batchIter);
 
-  double ret[5]{ kernel_time, rep_time, comm_time, check_answer_svd(lM, N, rank, &matU[0], lM, &matV[0], N, &matA[0], lM), fnorm(lM, N, &matA[0], lM) };
+  double eventMs[3]{ 'D', 'R', 'C' }; hyacinSync_TimerSegments(&handle, eventMs, 3);
+  double kernel_time = eventMs[0] + eventMs[1] + eventMs[2], rep_time = eventMs[1], comm_time = eventMs[2];
+  double ret[5]{ kernel_time, rep_time, comm_time, hyacinLRA::check_lra_answer(&handle, lM, N, d_A, lM, rank, d_U, lM, d_V, N), hyacinLRA::check_lra_answer(&handle, lM, N, d_A, lM) };
   cudaMemcpy(d_barrier, ret, 5 * sizeof(double), cudaMemcpyHostToDevice);
   ncclAllReduce(d_barrier, d_barrier, 5, ncclDouble, ncclSum, comm, handle.cudaStream);
   cudaStreamSynchronize(handle.cudaStream);
@@ -69,7 +66,7 @@ template <class T, class R> inline void run(char prec, double epi, int32_t batch
 
 int32_t main(int32_t argc, char* argv[]) {
   char prec = 'D', algo = 'A'; std::string file;
-  int64_t gM = 2048, N = 2048, K = 2048, mb = 512; int32_t jacobi_sweeps = 30, u_corr = 5, g_corr = 0, oversampling = 10, batchK = 65536, batchIter = 2048;
+  int64_t gM = 2048, N = 2048, K = 2048, mb = 512; int32_t jacobi_sweeps = 30, u_corr = 5, g_corr = 0, oversampling = 10, batchIter = 2048;
   double epi = 1.e-12;
 
   for (int32_t i = 1; i < argc; ++i) {
@@ -85,12 +82,11 @@ int32_t main(int32_t argc, char* argv[]) {
     else if (std::strncmp(argv[i], "u_corr=", 7) == 0) { std::sscanf(argv[i], "u_corr=%d", &u_corr); }
     else if (std::strncmp(argv[i], "g_corr=", 7) == 0) { std::sscanf(argv[i], "g_corr=%d", &g_corr); }
     else if (std::strncmp(argv[i], "p=", 2) == 0) { std::sscanf(argv[i], "p=%d", &oversampling); }
-    else if (std::strncmp(argv[i], "batchK=", 7) == 0) { std::sscanf(argv[i], "batchK=%d", &batchK); }
     else if (std::strncmp(argv[i], "batchIter=", 10) == 0) { std::sscanf(argv[i], "batchIter=%d", &batchIter); }
     else { std::cerr << "Ignored parameter: " << argv[i] << std::endl; }
   }
   N = std::min(gM, N); K = std::min(N, K);
-  handle_param_environments(algo, batchK, u_corr, g_corr, jacobi_sweeps, oversampling);
+  handle_param_environments(algo, u_corr, g_corr, jacobi_sweeps, oversampling);
 
   int32_t world_rank, world_size, local_rank; ncclUniqueId id;
   //bootstrap_mpi(world_rank, local_rank, world_size, id);
@@ -106,8 +102,8 @@ int32_t main(int32_t argc, char* argv[]) {
     case 'D': run<double, double>(prec, epi, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
     case 'S': run<float, float>(prec, epi, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
     case 'H': run<__half, __half>(prec, epi, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
-    case 'Z': run<std::complex<double>, double>(prec, epi, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
-    case 'C': run<std::complex<float>, float>(prec, epi, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
+    case 'Z': run<cuDoubleComplex, double>(prec, epi, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
+    case 'C': run<cuComplex, float>(prec, epi, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
     case 'J': run<__half2, __half>(prec, epi, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
     default: break;
   }

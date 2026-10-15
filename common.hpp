@@ -243,46 +243,8 @@ double fnorm(int32_t M, int32_t N, const T* A, int32_t lda) {
   return nrm;
 }
 
-template <class T> inline hyacinPrecision_t hyacin_prec();
-template <> inline hyacinPrecision_t hyacin_prec<double>() { return HYACIN_F64; };
-template <> inline hyacinPrecision_t hyacin_prec<float>() { return HYACIN_F32; };
-template <> inline hyacinPrecision_t hyacin_prec<__half>() { return HYACIN_F16; };
-template <> inline hyacinPrecision_t hyacin_prec<std::complex<double>>() { return HYACIN_F64_COMPLEX; };
-template <> inline hyacinPrecision_t hyacin_prec<std::complex<float>>() { return HYACIN_F32_COMPLEX; };
-template <> inline hyacinPrecision_t hyacin_prec<__half2>() { return HYACIN_F16_COMPLEX; };
-
-template <class T, class R>
-int32_t svd_fit_transform(hyacinHandle_t handle, double epi, int32_t batchIter, int32_t M, int32_t gM, int32_t N, int32_t K, const T* A, int32_t lda, T* U, int32_t ldu, R* S, T* V, int32_t ldv, int32_t Mv, int32_t Nv = 0, int32_t lcol_offset = 0) {
-  hyacinPrecision_t Atype = hyacin_prec<T>(), Gtype;
-  int32_t* vexp = nullptr, u, cPanels, lPanels, gElemBytes; uint64_t strideC;
-  cudaMallocFromPoolAsync((void**)&vexp, uint64_t(2) * uint64_t(N) * sizeof(int32_t), handle.mempool, handle.cudaStream);
-  hyacinXherkBatchInit(&handle, epi, gM, N, Atype, &u, &cPanels, &lPanels, &strideC, &Gtype, &gElemBytes);
-  hyacinXquantizeScaleBatch(&handle, 1, 0, M, N, Atype, A, lda, u, vexp);
-  hyacinAllReduceVExp(&handle, uint64_t(N), vexp);
-
-  uint64_t* C = nullptr; cudaMallocFromPoolAsync((void**)&C, uint64_t(cPanels) * uint64_t(lPanels) * strideC * sizeof(uint64_t), handle.mempool, handle.cudaStream);
-  hyacinXherkBatch(&handle, 1, 0, M, N, Atype, A, lda, u, vexp, 0, lPanels, C);
-  hyacinAllReduce1Drow(&handle, cPanels, lPanels, strideC, C);
-
-  void* G = nullptr; cudaMallocFromPoolAsync((void**)&G, uint64_t(N) * uint64_t(N) * uint64_t(gElemBytes), handle.mempool, handle.cudaStream);
-  hyacinXdequantize(&handle, N, lPanels, C, vexp, Gtype, G, N);
-  cudaFreeAsync(vexp, handle.cudaStream); cudaFreeAsync(C, handle.cudaStream);
-
-  T* X = nullptr; cudaMallocFromPoolAsync((void**)&X, uint64_t(N) * uint64_t(K) * sizeof(T), handle.mempool, handle.cudaStream);
-  int32_t rank = hyacinXGevd(&handle, 'A', epi, 1, N, K, Atype, X, N, S, Gtype, G, N);
-  cudaFreeAsync(G, handle.cudaStream);
-  hyacinXtransform(&handle, M, N, rank, Atype, A, lda, U, ldu, 'F', X, N);
-  hyacinXtransform(&handle, Mv, Nv, rank, Atype, V, ldv, V, ldv, 'F', &X[lcol_offset], N);
-  cudaFreeAsync(X, handle.cudaStream);
-
-  double eventMs[3]{ 'D', 'R', 'C' }; hyacinSync_TimerSegments(&handle, eventMs, 3);
-  kernel_time += eventMs[0] + eventMs[1] + eventMs[2]; rep_time += eventMs[1]; comm_time += eventMs[2];
-  return rank;
-}
-
-void handle_param_environments(char algo, int32_t batchK, int32_t u_corr, int32_t g_corr, int32_t jacobi_sweeps, int32_t oversampling) {
+void handle_param_environments(char algo, int32_t u_corr, int32_t g_corr, int32_t jacobi_sweeps, int32_t oversampling) {
   setenv("HYACIN_GRAM_ALGORITHM", std::string(1, algo).c_str(), 1);
-  setenv("HYACIN_BATCH_K", std::to_string(batchK).c_str(), 1);
   setenv("HYACIN_QUANTIZE_BITS_CORR", std::to_string(u_corr).c_str(), 1);
   setenv("HYACIN_GRAM_BITS_CORR", std::to_string(g_corr).c_str(), 1);
   setenv("HYACIN_JACOBI_SVD_SWEEPS", std::to_string(jacobi_sweeps).c_str(), 1);

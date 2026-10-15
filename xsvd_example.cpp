@@ -16,24 +16,22 @@ template <class T, class R> inline void run(char prec, double epi, int32_t batch
   T* d_A = nullptr, *d_U = nullptr, *d_V = nullptr; R* d_S = nullptr;
   cudaMalloc((void**)(&d_A), M * N * sizeof(T));
   cudaMalloc((void**)(&d_U), M * K * sizeof(T));
-  cudaMalloc((void**)(&d_V), N * N * sizeof(T));
+  cudaMalloc((void**)(&d_V), N * K * sizeof(T));
   cudaMalloc((void**)(&d_S), K * sizeof(R));
   cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);
 
   hyacinHandle_t handle;
   hyacinCreate(&handle);
-  int32_t rank = hyacinLRA::svd_fit_transform(&handle, epi, 0, M, N, K, d_A, M, d_U, M, d_S, d_V, N, M, batchIter);
+  int32_t rank = hyacinLRA::svd_fit_transform(&handle, epi, 1, M, N, K, d_A, M, d_U, M, d_S, d_V, N, M, batchIter);
   hyacinSync_TimerSegments(&handle, nullptr, 0);
+
+  for (int32_t i = 0; i < kernel_runs; ++i)
+    rank = hyacinLRA::svd_fit_transform(&handle, epi, 1, M, N, K, d_A, M, d_U, M, d_S, d_V, N, M, batchIter);
 
   double nrm = hyacinLRA::check_lra_answer(&handle, M, N, d_A, M);
   double err = nrm == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(hyacinLRA::check_lra_answer(&handle, M, N, d_A, M, rank, d_U, M, d_V, N) / nrm);
-  double kernel_time = 0.;
-
-  for (int32_t i = 0; i < kernel_runs; ++i)
-    rank = hyacinLRA::svd_fit_transform(&handle, epi, 0, M, N, K, d_A, M, d_U, M, d_S, d_V, N, M, batchIter);
-
   double eventMs[2]{ 'D', 'R' }; hyacinSync_TimerSegments(&handle, eventMs, 2);
-  kernel_time += eventMs[0] + eventMs[1];
+  double kernel_time = eventMs[0] + eventMs[1];
   hyacinDestroy(&handle);
   std::vector<R> vecS(K);
   cudaMemcpy(vecS.data(), d_S, K * sizeof(R), cudaMemcpyDeviceToHost);
@@ -49,7 +47,7 @@ template <class T, class R> inline void run(char prec, double epi, int32_t batch
 
 int32_t main(int32_t argc, char* argv[]) {
   char prec = 'D', algo = 'A'; std::string file;
-  int64_t M = 2048, N = 2048, K = 2048; int32_t jacobi_sweeps = 30, u_corr = 5, g_corr = 0, oversampling = 10, batchK = 65536, batchIter = 2048;
+  int64_t M = 2048, N = 2048, K = 2048; int32_t jacobi_sweeps = 30, u_corr = 5, g_corr = 0, oversampling = 10, batchIter = 2048;
   double epi = 1.e-12;
 
   for (int32_t i = 1; i < argc; ++i) {
@@ -64,12 +62,11 @@ int32_t main(int32_t argc, char* argv[]) {
     else if (std::strncmp(argv[i], "u_corr=", 7) == 0) { std::sscanf(argv[i], "u_corr=%d", &u_corr); }
     else if (std::strncmp(argv[i], "g_corr=", 7) == 0) { std::sscanf(argv[i], "g_corr=%d", &g_corr); }
     else if (std::strncmp(argv[i], "p=", 2) == 0) { std::sscanf(argv[i], "p=%d", &oversampling); }
-    else if (std::strncmp(argv[i], "batchK=", 7) == 0) { std::sscanf(argv[i], "batchK=%d", &batchK); }
     else if (std::strncmp(argv[i], "batchIter=", 10) == 0) { std::sscanf(argv[i], "batchIter=%d", &batchIter); }
     else { std::cerr << "Ignored parameter: " << argv[i] << std::endl; }
   }
   N = std::min(M, N); K = std::min(N, K);
-  handle_param_environments(algo, batchK, u_corr, g_corr, jacobi_sweeps, oversampling);
+  handle_param_environments(algo, u_corr, g_corr, jacobi_sweeps, oversampling);
 
   auto cu_err = cudaSetDevice(0);
   cudaDeviceReset();
