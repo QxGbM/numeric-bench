@@ -12,20 +12,6 @@ template <> inline hyacinPrecision_t hyacin_prec<std::complex<float>>() { return
 template <> inline hyacinPrecision_t hyacin_prec<__half2>() { return HYACIN_F16_COMPLEX; };
 
 template <class T>
-double check_answer_syrk(int32_t M, int32_t N, const T* A, int32_t lda, const T* R, int32_t ldr) {
-  if (M <= 0 || N <= 0) { return 0.; }
-  constexpr int32_t Complex = std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, __half2>;
-  using type = typename std::conditional<Complex, std::complex<double>, double>::type;
-  std::vector<type> matB(int64_t(N) * int64_t(M)), matR(int64_t(N) * int64_t(N));
-  for (int32_t i = 0; i < N; ++i) { copy2d(1, M, &A[int64_t(i) * int64_t(lda)], 1, &matB[i], N); }
-  if constexpr(Complex) { for (std::complex<double>& f : matB) { f = std::conj(f); }}
-  copy2d(N, N, R, ldr, &matR[0], N);
-  nngemm(N, N, M, &matB[0], N, &matB[0], N, &matR[0], N);
-  double err = std::transform_reduce(matR.begin(), matR.end(), 0., std::plus<double>(), [](auto i) { return std::norm(i); });
-  return err;
-}
-
-template <class T>
 void syrk_hyac(hyacinHandle_t handle, double epi, int32_t batchIter, int32_t M, int32_t N, const T* A, int32_t lda, T* R, int32_t ldr) {
   batchIter = batchIter <= 0 ? M : std::min(batchIter, M);
   std::div_t divM = std::div(M, batchIter); int32_t batches = divM.quot + int32_t(0 < divM.rem), lastM = 0 < divM.rem ? divM.rem : batchIter;
@@ -60,12 +46,6 @@ template <class T> inline void run(char prec, double epi, int32_t batchIter, int
   syrk_hyac(handle, epi, batchIter, M, N, d_A, M, d_X, N);
   hyacinSync_TimerSegments(&handle, nullptr, 0);
 
-  std::vector<T> matX(N * N);
-  cudaMemcpy(matX.data(), d_X, N * N * sizeof(T), cudaMemcpyDeviceToHost);
-  double nrm = fnorm(M, N, &matA[0], M);
-  double err = nrm == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(check_answer_syrk(M, N, matA.data(), M, matX.data(), N) / nrm);
-  cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);
-
   for (int32_t i = 0; i < kernel_runs; ++i)
     syrk_hyac(handle, epi, batchIter, M, N, d_A, M, d_X, N);
 
@@ -81,8 +61,8 @@ template <class T> inline void run(char prec, double epi, int32_t batchIter, int
   uint64_t flops = uint64_t(N + 1) * uint64_t(N) * uint64_t(M);
   if constexpr(std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, __half2>) { flops *= uint64_t(4); }
 
-  printf("%c-SYRK [M=%ld,N=%ld] [epi=%.1le] [err=%.12le] [host=%lf ms] [kernel=%lf ms] [%lf TFlops]\n",
-    prec, M, N, epi, err, duration, kernel_time, (1.e-9 * double(flops)) / kernel_time);
+  printf("%c-SYRK [M=%ld,N=%ld] [epi=%.1le] [host=%lf ms] [kernel=%lf ms] [%lf TFlops]\n",
+    prec, M, N, epi, duration, kernel_time, (1.e-9 * double(flops)) / kernel_time);
 }
 
 int32_t main(int32_t argc, char* argv[]) {

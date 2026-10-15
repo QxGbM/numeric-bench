@@ -107,7 +107,7 @@ template <class T> struct matrix_generator {
   matrix_generator(double w, int64_t M, int64_t N) : gM(M), gN(N), bodies(int64_t(3) * (M + N)), w(w) {
     int64_t nbodies = M + N;
     const double phi = 2.39996322972865332223; // golden angle in radians
-    const double rx = 20., ry = 2., rz = 1., dn = 2. / double((nbodies - int64_t(1)) ?: int64_t(1));
+    const double rx = 100., ry = 10., rz = 10., dn = 2. / double((nbodies - int64_t(1)) ?: int64_t(1));
     for (int64_t i = 0; i < nbodies; ++i) {
       double di = double(i);
       double x = 1. - (di * dn);  // x goes from -r to r.
