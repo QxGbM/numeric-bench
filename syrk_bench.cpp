@@ -18,7 +18,7 @@ void syrk_hyac(hyacinHandle_t handle, double epi, int32_t batchIter, int32_t M, 
   hyacinPrecision_t Atype = hyacin_prec<T>();
   int32_t* vexp = nullptr, u, cPanels, lPanels; uint64_t strideC;
   cudaMallocFromPoolAsync((void**)&vexp, uint64_t(2) * uint64_t(N) * sizeof(int32_t), handle.mempool, handle.cudaStream);
-  hyacinXherkBatchInit(&handle, epi, M, N, Atype, &u, &cPanels, &lPanels, &strideC, nullptr, nullptr);
+  hyacinXherkBatchInit(&handle, epi, M, N, Atype, &u, &cPanels, &lPanels, &strideC);
   hyacinXquantizeScaleBatch(&handle, batches, batchIter, lastM, N, Atype, A, lda, u, vexp);
 
   uint64_t* C = nullptr; cudaMallocFromPoolAsync((void**)&C, uint64_t(cPanels) * uint64_t(lPanels) * strideC * sizeof(uint64_t), handle.mempool, handle.cudaStream);

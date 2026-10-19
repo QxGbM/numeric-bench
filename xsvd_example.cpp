@@ -13,29 +13,28 @@ template <class T, class R> inline void run(char prec, double epi, int32_t batch
   /* Timed region start */
   auto host_start = std::chrono::high_resolution_clock::now();
 
-  T* d_A = nullptr, *d_U = nullptr, *d_V = nullptr; R* d_S = nullptr;
+  T* d_A = nullptr, *d_V = nullptr; R* d_S = nullptr;
   cudaMalloc((void**)(&d_A), M * N * sizeof(T));
-  cudaMalloc((void**)(&d_U), M * K * sizeof(T));
   cudaMalloc((void**)(&d_V), N * K * sizeof(T));
   cudaMalloc((void**)(&d_S), K * sizeof(R));
   cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);
 
   hyacinHandle_t handle;
   hyacinCreate(&handle);
-  int32_t rank = hyacinLRA::svd_fit_transform(&handle, epi, 1, M, N, K, d_A, M, d_U, M, d_S, d_V, N, M, batchIter);
+  int32_t rank = hyacinLRA::tsvd_fit_segmentN(&handle, epi, 'N', M, N, K, d_A, M, d_S, d_V, N, M, batchIter);
   hyacinSync_TimerSegments(&handle, nullptr, 0);
 
   for (int32_t i = 0; i < kernel_runs; ++i)
-    rank = hyacinLRA::svd_fit_transform(&handle, epi, 1, M, N, K, d_A, M, d_U, M, d_S, d_V, N, M, batchIter);
+    rank = hyacinLRA::tsvd_fit_segmentN(&handle, epi, 'N', M, N, K, d_A, M, d_S, d_V, N, M, batchIter);
 
   double nrm = hyacinLRA::check_lra_answer(&handle, M, N, d_A, M);
-  double err = nrm == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(hyacinLRA::check_lra_answer(&handle, M, N, d_A, M, rank, d_U, M, d_V, N) / nrm);
+  double err = nrm == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(hyacinLRA::check_lra_answer(&handle, M, N, d_A, M, rank, d_V, N) / nrm);
   double eventMs[2]{ 'D', 'R' }; hyacinSync_TimerSegments(&handle, eventMs, 2);
   double kernel_time = eventMs[0] + eventMs[1];
   hyacinDestroy(&handle);
   std::vector<R> vecS(K);
   cudaMemcpy(vecS.data(), d_S, K * sizeof(R), cudaMemcpyDeviceToHost);
-  cudaFree(d_A); cudaFree(d_U); cudaFree(d_S); cudaFree(d_V);
+  cudaFree(d_A); cudaFree(d_S); cudaFree(d_V);
 
   /* Timed region end */
   std::chrono::duration<double, std::milli> host_wtime = std::chrono::high_resolution_clock::now() - host_start;

@@ -17,9 +17,8 @@ template <class T, class R> inline void run(char prec, double epi, int32_t batch
   /* Timed region start */
   auto host_start = std::chrono::high_resolution_clock::now();
 
-  T* d_A = nullptr, *d_U = nullptr, *d_V = nullptr; R* d_S = nullptr;
+  T* d_A = nullptr, *d_V = nullptr; R* d_S = nullptr;
   cudaMalloc((void**)(&d_A), lM * N * sizeof(T));
-  cudaMalloc((void**)(&d_U), lM * K * sizeof(T));
   cudaMalloc((void**)(&d_V), K * N * sizeof(T));
   cudaMalloc((void**)(&d_S), K * sizeof(R));
   cudaMemcpy(d_A, matA.data(), lM * N * sizeof(T), cudaMemcpyHostToDevice);
@@ -31,17 +30,17 @@ template <class T, class R> inline void run(char prec, double epi, int32_t batch
   ncclCommInitRank(&comm, tile_m, id, grid_row);
   hyacinCreate(&handle); handle.ncclComm = comm;
 
-  int32_t rank = hyacinLRA::svd_fit_transform(&handle, epi, 1, lM, N, K, d_A, lM, d_U, lM, d_S, d_V, N, gM, batchIter);
+  int32_t rank = hyacinLRA::tsvd_fit(&handle, epi, 'N', lM, N, K, d_A, lM, d_S, d_V, N, gM, batchIter);
   hyacinSync_TimerSegments(&handle, nullptr, 0);
 
   ncclAllReduce(d_barrier, d_barrier, 1, ncclInt32, ncclMin, comm, handle.cudaStream);
   cudaStreamSynchronize(handle.cudaStream);
   for (int32_t i = 0; i < kernel_runs; ++i)
-    rank = hyacinLRA::svd_fit_transform(&handle, epi, 1, lM, N, K, d_A, lM, d_U, lM, d_S, d_V, N, gM, batchIter);
+    rank = hyacinLRA::tsvd_fit(&handle, epi, 'N', lM, N, K, d_A, lM, d_S, d_V, N, gM, batchIter);
 
   double eventMs[3]{ 'D', 'R', 'C' }; hyacinSync_TimerSegments(&handle, eventMs, 3);
   double kernel_time = eventMs[0] + eventMs[1] + eventMs[2], rep_time = eventMs[1], comm_time = eventMs[2];
-  double ret[5]{ kernel_time, rep_time, comm_time, hyacinLRA::check_lra_answer(&handle, lM, N, d_A, lM, rank, d_U, lM, d_V, N), hyacinLRA::check_lra_answer(&handle, lM, N, d_A, lM) };
+  double ret[5]{ kernel_time, rep_time, comm_time, hyacinLRA::check_lra_answer(&handle, lM, N, d_A, lM, rank, d_V, N), hyacinLRA::check_lra_answer(&handle, lM, N, d_A, lM) };
   cudaMemcpy(d_barrier, ret, 5 * sizeof(double), cudaMemcpyHostToDevice);
   ncclAllReduce(d_barrier, d_barrier, 5, ncclDouble, ncclSum, comm, handle.cudaStream);
   cudaStreamSynchronize(handle.cudaStream);
@@ -53,7 +52,7 @@ template <class T, class R> inline void run(char prec, double epi, int32_t batch
   ncclCommDestroy(comm);
   std::vector<R> vecS(K);
   cudaMemcpy(vecS.data(), d_S, K * sizeof(R), cudaMemcpyDeviceToHost);
-  cudaFree(d_A); cudaFree(d_U); cudaFree(d_S); cudaFree(d_V); cudaFree(d_barrier);
+  cudaFree(d_A); cudaFree(d_S); cudaFree(d_V); cudaFree(d_barrier);
 
   /* Timed region end */
   std::chrono::duration<double, std::milli> host_wtime = std::chrono::high_resolution_clock::now() - host_start;
