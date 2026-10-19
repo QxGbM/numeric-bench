@@ -81,7 +81,7 @@ int32_t main(int32_t argc, char* argv[]) {
     else { std::cerr << "Ignored parameter: " << argv[i] << std::endl; }
   }
   N = std::min(M, N);
-  handle_param_environments(algo, u_corr, 0, 0, 0);
+  handle_param_environments(algo, u_corr, 0, 0);
 
   auto cu_err = cudaSetDevice(0);
   cudaDeviceReset();
