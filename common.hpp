@@ -1,6 +1,6 @@
 #pragma once
 
-#include <hyacinLRA.hpp>
+#include <hyacin.h>
 #include <vector>
 #include <array>
 #include <complex>

@@ -12,23 +12,23 @@ template <> inline hyacinPrecision_t hyacin_prec<std::complex<float>>() { return
 template <> inline hyacinPrecision_t hyacin_prec<__half2>() { return HYACIN_F16_COMPLEX; };
 
 template <class T>
-void syrk_hyac(hyacinHandle_t handle, double epi, int32_t batchIter, int32_t M, int32_t N, const T* A, int32_t lda, T* R, int32_t ldr) {
-  batchIter = batchIter <= 0 ? M : std::min(batchIter, M);
+void syrk_hyac(const hyacinHandle_t* handle, double epi, int32_t M, int32_t N, const T* A, int32_t lda, T* R, int32_t ldr) {
+  int32_t batchIter = handle->GramSegmentK <= 0 ? M : std::min(handle->GramSegmentK, M);
   std::div_t divM = std::div(M, batchIter); int32_t batches = divM.quot + int32_t(0 < divM.rem), lastM = 0 < divM.rem ? divM.rem : batchIter;
   hyacinPrecision_t Atype = hyacin_prec<T>();
   int32_t* vexp = nullptr, u, cPanels, lPanels; uint64_t strideC;
-  cudaMallocFromPoolAsync((void**)&vexp, uint64_t(2) * uint64_t(N) * sizeof(int32_t), handle.mempool, handle.cudaStream);
-  hyacinXherkBatchInit(&handle, epi, M, N, Atype, &u, &cPanels, &lPanels, &strideC);
-  hyacinXquantizeScaleBatch(&handle, batches, batchIter, lastM, N, Atype, A, lda, u, vexp);
+  cudaMallocFromPoolAsync((void**)&vexp, uint64_t(2) * uint64_t(N) * sizeof(int32_t), handle->mempool, handle->cudaStream);
+  hyacinXherkBatchInit(handle, epi, M, N, Atype, &u, &cPanels, &lPanels, &strideC);
+  hyacinXquantizeScaleBatch(handle, batches, batchIter, lastM, N, Atype, A, lda, u, vexp);
 
-  uint64_t* C = nullptr; cudaMallocFromPoolAsync((void**)&C, uint64_t(cPanels) * uint64_t(lPanels) * strideC * sizeof(uint64_t), handle.mempool, handle.cudaStream);
-  hyacinXherkBatch(&handle, batches, batchIter, lastM, N, Atype, A, lda, u, vexp, 0, lPanels, C);
+  uint64_t* C = nullptr; cudaMallocFromPoolAsync((void**)&C, uint64_t(cPanels) * uint64_t(lPanels) * strideC * sizeof(uint64_t), handle->mempool, handle->cudaStream);
+  hyacinXherkBatch(handle, batches, batchIter, lastM, N, Atype, A, lda, u, vexp, 0, lPanels, C);
 
-  hyacinXdequantize(&handle, N, lPanels, C, vexp, Atype, R, ldr);
-  cudaFreeAsync(vexp, handle.cudaStream); cudaFreeAsync(C, handle.cudaStream);
+  hyacinXdequantize(handle, N, lPanels, C, vexp, Atype, R, ldr);
+  cudaFreeAsync(vexp, handle->cudaStream); cudaFreeAsync(C, handle->cudaStream);
 }
 
-template <class T> inline void run(char prec, double epi, int32_t batchIter, int64_t M, int64_t N) {
+template <class T> inline void run(char prec, double epi, int64_t M, int64_t N) {
   std::vector<T> matA(M * N);
   matrix_generator<T>(1., M, N).generate_block(512, 512, &matA[0], M);
 
@@ -43,11 +43,11 @@ template <class T> inline void run(char prec, double epi, int32_t batchIter, int
   hyacinHandle_t handle{};
   hyacinCreate(&handle);
 
-  syrk_hyac(handle, epi, batchIter, M, N, d_A, M, d_X, N);
+  syrk_hyac(&handle, epi, M, N, d_A, M, d_X, N);
   hyacinSync_TimerSegments(&handle, nullptr, 0);
 
   for (int32_t i = 0; i < kernel_runs; ++i)
-    syrk_hyac(handle, epi, batchIter, M, N, d_A, M, d_X, N);
+    syrk_hyac(&handle, epi, M, N, d_A, M, d_X, N);
 
   double eventMs[2]{ 'D', 'R' }; hyacinSync_TimerSegments(&handle, eventMs, 2);
   double kernel_time = eventMs[0] + eventMs[1];
@@ -89,12 +89,12 @@ int32_t main(int32_t argc, char* argv[]) {
   { std::cerr << cudaGetErrorString(cu_err) << std::endl; return -1; }
 
   switch(prec) {
-    case 'D': run<double>(prec, epi, batchIter, M, N); break;
-    case 'S': run<float>(prec, epi, batchIter, M, N); break;
-    case 'H': run<__half>(prec, epi, batchIter, M, N); break;
-    case 'Z': run<std::complex<double>>(prec, epi, batchIter, M, N); break;
-    case 'C': run<std::complex<float>>(prec, epi, batchIter, M, N); break;
-    case 'J': run<__half2>(prec, epi, batchIter, M, N); break;
+    case 'D': run<double>(prec, epi, M, N); break;
+    case 'S': run<float>(prec, epi, M, N); break;
+    case 'H': run<__half>(prec, epi, M, N); break;
+    case 'Z': run<std::complex<double>>(prec, epi, M, N); break;
+    case 'C': run<std::complex<float>>(prec, epi, M, N); break;
+    case 'J': run<__half2>(prec, epi, M, N); break;
     default: break;
   }
 

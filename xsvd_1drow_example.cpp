@@ -3,8 +3,15 @@
 #include <iostream>
 #include <chrono>
 
-template <class T, class R> inline void run(char prec, double epi, int32_t batchIter,
-  int64_t gM, int64_t N, int64_t K, int64_t mb, int32_t grid_row, int32_t tile_m, ncclUniqueId id, const std::string& file) {
+template <class T> inline hyacinPrecision_t hyacin_prec();
+template <> inline hyacinPrecision_t hyacin_prec<double>() { return HYACIN_F64; };
+template <> inline hyacinPrecision_t hyacin_prec<float>() { return HYACIN_F32; };
+template <> inline hyacinPrecision_t hyacin_prec<__half>() { return HYACIN_F16; };
+template <> inline hyacinPrecision_t hyacin_prec<cuDoubleComplex>() { return HYACIN_F64_COMPLEX; };
+template <> inline hyacinPrecision_t hyacin_prec<cuComplex>() { return HYACIN_F32_COMPLEX; };
+template <> inline hyacinPrecision_t hyacin_prec<__half2>() { return HYACIN_F16_COMPLEX; };
+
+template <class T, class R> inline void run(char prec, double epi, int64_t gM, int64_t N, int64_t K, int64_t mb, int32_t grid_row, int32_t tile_m, ncclUniqueId id, const std::string& file) {
   int64_t lM = mb * (gM / (mb * tile_m));
   lM += std::max(int64_t(0), std::min(mb, gM - lM * tile_m - mb * grid_row));
 
@@ -30,17 +37,17 @@ template <class T, class R> inline void run(char prec, double epi, int32_t batch
   ncclCommInitRank(&comm, tile_m, id, grid_row);
   hyacinCreate(&handle); handle.ncclComm = comm;
 
-  int32_t rank = hyacinLRA::tsvd_fit(&handle, epi, 'N', lM, N, K, d_A, lM, d_S, d_V, N, gM, batchIter);
+  int32_t rank = hyacinTsvdFitSegmentN(&handle, epi, 'N', lM, N, K, d_A, lM, d_S, d_V, N, gM, hyacin_prec<T>());
   hyacinSync_TimerSegments(&handle, nullptr, 0);
 
   ncclAllReduce(d_barrier, d_barrier, 1, ncclInt32, ncclMin, comm, handle.cudaStream);
   cudaStreamSynchronize(handle.cudaStream);
   for (int32_t i = 0; i < kernel_runs; ++i)
-    rank = hyacinLRA::tsvd_fit(&handle, epi, 'N', lM, N, K, d_A, lM, d_S, d_V, N, gM, batchIter);
+    rank = hyacinTsvdFitSegmentN(&handle, epi, 'N', lM, N, K, d_A, lM, d_S, d_V, N, gM, hyacin_prec<T>());
 
   double eventMs[3]{ 'D', 'R', 'C' }; hyacinSync_TimerSegments(&handle, eventMs, 3);
   double kernel_time = eventMs[0] + eventMs[1] + eventMs[2], rep_time = eventMs[1], comm_time = eventMs[2];
-  double ret[5]{ kernel_time, rep_time, comm_time, hyacinLRA::check_lra_answer(&handle, lM, N, d_A, lM, rank, d_V, N), hyacinLRA::check_lra_answer(&handle, lM, N, d_A, lM) };
+  double ret[5]{ kernel_time, rep_time, comm_time, hyacinCheckNorm(&handle, lM, N, d_A, lM, rank, d_V, N, hyacin_prec<T>()), hyacinCheckNorm(&handle, lM, N, d_A, lM, 0, nullptr, 0, hyacin_prec<T>()) };
   cudaMemcpy(d_barrier, ret, 5 * sizeof(double), cudaMemcpyHostToDevice);
   ncclAllReduce(d_barrier, d_barrier, 5, ncclDouble, ncclSum, comm, handle.cudaStream);
   cudaStreamSynchronize(handle.cudaStream);
@@ -97,12 +104,12 @@ int32_t main(int32_t argc, char* argv[]) {
   { std::cerr << cudaGetErrorString(cu_err) << std::endl; return -1; }
 
   switch(prec) {
-    case 'D': run<double, double>(prec, epi, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
-    case 'S': run<float, float>(prec, epi, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
-    case 'H': run<__half, __half>(prec, epi, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
-    case 'Z': run<cuDoubleComplex, double>(prec, epi, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
-    case 'C': run<cuComplex, float>(prec, epi, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
-    case 'J': run<__half2, __half>(prec, epi, batchIter, gM, N, K, mb, world_rank, world_size, id, file); break;
+    case 'D': run<double, double>(prec, epi, gM, N, K, mb, world_rank, world_size, id, file); break;
+    case 'S': run<float, float>(prec, epi, gM, N, K, mb, world_rank, world_size, id, file); break;
+    case 'H': run<__half, __half>(prec, epi, gM, N, K, mb, world_rank, world_size, id, file); break;
+    case 'Z': run<cuDoubleComplex, double>(prec, epi, gM, N, K, mb, world_rank, world_size, id, file); break;
+    case 'C': run<cuComplex, float>(prec, epi, gM, N, K, mb, world_rank, world_size, id, file); break;
+    case 'J': run<__half2, __half>(prec, epi, gM, N, K, mb, world_rank, world_size, id, file); break;
     default: break;
   }
 

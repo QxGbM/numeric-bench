@@ -3,7 +3,15 @@
 #include <iostream>
 #include <chrono>
 
-template <class T, class R> inline void run(char prec, double epi, int32_t batchIter, int64_t M, int64_t N, int64_t K, const std::string& file) {
+template <class T> inline hyacinPrecision_t hyacin_prec();
+template <> inline hyacinPrecision_t hyacin_prec<double>() { return HYACIN_F64; };
+template <> inline hyacinPrecision_t hyacin_prec<float>() { return HYACIN_F32; };
+template <> inline hyacinPrecision_t hyacin_prec<__half>() { return HYACIN_F16; };
+template <> inline hyacinPrecision_t hyacin_prec<cuDoubleComplex>() { return HYACIN_F64_COMPLEX; };
+template <> inline hyacinPrecision_t hyacin_prec<cuComplex>() { return HYACIN_F32_COMPLEX; };
+template <> inline hyacinPrecision_t hyacin_prec<__half2>() { return HYACIN_F16_COMPLEX; };
+
+template <class T, class R> inline void run(char prec, double epi, int64_t M, int64_t N, int64_t K, const std::string& file) {
   std::vector<T> matA(M * N);
   if (!file.empty())
     matrix_from_row_major_csv(M, N, 512, 512, matA.data(), M, file);
@@ -21,15 +29,15 @@ template <class T, class R> inline void run(char prec, double epi, int32_t batch
 
   hyacinHandle_t handle{};
   hyacinCreate(&handle);
-  int32_t rank = hyacinLRA::tsvd_fit_segmentN(&handle, epi, 'N', M, N, K, d_A, M, d_S, d_V, N, M, batchIter);
+  int32_t rank = hyacinTsvdFitSegmentN(&handle, epi, 'N', M, N, K, d_A, M, d_S, d_V, N, M, hyacin_prec<T>());
   hyacinSync_TimerSegments(&handle, nullptr, 0);
 
   for (int32_t i = 0; i < kernel_runs; ++i)
-    rank = hyacinLRA::tsvd_fit_segmentN(&handle, epi, 'N', M, N, K, d_A, M, d_S, d_V, N, M, batchIter);
+    rank = hyacinTsvdFitSegmentN(&handle, epi, 'N', M, N, K, d_A, M, d_S, d_V, N, M, hyacin_prec<T>());
 
   double eventMs[2]{ 'D', 'R' }; hyacinSync_TimerSegments(&handle, eventMs, 2);
-  double nrm = hyacinLRA::check_lra_answer(&handle, M, N, d_A, M);
-  double err = nrm == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(hyacinLRA::check_lra_answer(&handle, M, N, d_A, M, rank, d_V, N) / nrm);
+  double nrm = hyacinCheckNorm(&handle, M, N, d_A, M, 0, nullptr, 0, hyacin_prec<T>());
+  double err = nrm == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(hyacinCheckNorm(&handle, M, N, d_A, M, rank, d_V, N, hyacin_prec<T>()) / nrm);
   double kernel_time = eventMs[0] + eventMs[1];
   hyacinDestroy(&handle);
   std::vector<R> vecS(K);
@@ -72,12 +80,12 @@ int32_t main(int32_t argc, char* argv[]) {
   { std::cerr << cudaGetErrorString(cu_err) << std::endl; return -1; }
 
   switch(prec) {
-    case 'D': run<double, double>(prec, epi, batchIter, M, N, K, file); break;
-    case 'S': run<float, float>(prec, epi, batchIter, M, N, K, file); break;
-    case 'H': run<__half, __half>(prec, epi, batchIter, M, N, K, file); break;
-    case 'Z': run<cuDoubleComplex, double>(prec, epi, batchIter, M, N, K, file); break;
-    case 'C': run<cuComplex, float>(prec, epi, batchIter, M, N, K, file); break;
-    case 'J': run<__half2, __half>(prec, epi, batchIter, M, N, K, file); break;
+    case 'D': run<double, double>(prec, epi, M, N, K, file); break;
+    case 'S': run<float, float>(prec, epi, M, N, K, file); break;
+    case 'H': run<__half, __half>(prec, epi, M, N, K, file); break;
+    case 'Z': run<cuDoubleComplex, double>(prec, epi, M, N, K, file); break;
+    case 'C': run<cuComplex, float>(prec, epi, M, N, K, file); break;
+    case 'J': run<__half2, __half>(prec, epi, M, N, K, file); break;
     default: break;
   }
 
