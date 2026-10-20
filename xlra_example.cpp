@@ -25,9 +25,9 @@ template <class T> inline void run(char prec, double epi, int32_t batchIter, int
   for (int32_t i = 0; i < kernel_runs; ++i)
     rank = hyacinLRA::interp_fit(&handle, epi, 'N', M, N, N, d_A, M, jpvt, d_X, N, M, batchIter);
 
+  double eventMs[2]{ 'D', 'R' }; hyacinSync_TimerSegments(&handle, eventMs, 2);
   double nrm = hyacinLRA::check_lra_answer(&handle, M, N, d_A, M);
   double err = nrm == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(hyacinLRA::check_lra_answer(&handle, M, N, d_A, M, rank, d_X, N) / nrm);
-  double eventMs[2]{ 'D', 'R' }; hyacinSync_TimerSegments(&handle, eventMs, 2);
   double kernel_time = eventMs[0] + eventMs[1];
   hyacinDestroy(&handle);
 
