@@ -1,7 +1,8 @@
 
 #include <common.hpp>
-#include <iostream>
 #include <magma_v2.h>
+#include <iostream>
+#include <chrono>
 
 template <class T>
 double check_answer_lra(int32_t rank, int32_t M, int32_t N, const T* A, int32_t lda, const int32_t* jpiv, const T* R, int32_t ldr) {
@@ -44,6 +45,9 @@ int32_t main(int32_t argc, char* argv[]) {
 
   std::vector<std::complex<double>> matA(M * N), matB(M * N);
   matrix_generator<std::complex<double>>(1., M, N).generate_block(512, 512, &matA[0], M);
+
+  /* Timed region start */
+  auto host_start = std::chrono::high_resolution_clock::now();
   
   int64_t Lwork = 128ll * (N + 1ll); magma_int_t info;
   cudaMalloc((void**)&dA, M * N * sizeof(std::complex<double>));
@@ -55,8 +59,11 @@ int32_t main(int32_t argc, char* argv[]) {
   cudaStreamSynchronize(stream);
 
   cudaMemcpy(&matB[0], dA, M * N * sizeof(std::complex<double>), cudaMemcpyDeviceToHost);
-  double s0 = epi * std::abs(matB[0].real());
-  int64_t rank = 0; while (rank < N && s0 <= std::abs(matB[rank * (M + 1)].real())) { ++rank; }
+  std::vector<double> fnorms(N, 0.0), norms_sum(N);
+  for (int64_t i = 0; i < N; ++i) for (int64_t j = i; j < N; ++j) { fnorms[i] += std::norm(matB[i + j * M]); }
+  for (int64_t i = N - 1; 0 <= i; --i) { norms_sum[i] = i == N - 1 ? fnorms[i] : fnorms[i] + norms_sum[i + 1]; }
+  double s0 = std::pow(epi, 2) * norms_sum[0];
+  int64_t rank = 0; while (rank < N && s0 < norms_sum[rank]) { ++rank; }
 
   magmaDoubleComplex one = conv_magmaZ(std::complex<double>(1., 0.)), zero = conv_magmaZ(std::complex<double>(0., 0.));
   cublasZtrsm(cublasH, CUBLAS_SIDE_LEFT, CUBLAS_FILL_MODE_UPPER, CUBLAS_OP_N, CUBLAS_DIAG_NON_UNIT, rank, N - rank, (cuDoubleComplex*)&one, dA, M, &dA[rank * M], M);
@@ -81,12 +88,15 @@ int32_t main(int32_t argc, char* argv[]) {
   cudaEventRecord(stop, stream);
   cudaStreamSynchronize(stream);
 
-  float milliseconds = 0.0f;
-  cudaEventElapsedTime(&milliseconds, start, stop);
-  int64_t qr_flops = (M * N * N * 2) - (N * N * N * 2 / 3);
-  int64_t trsm_flops = N * rank * rank;
-  double gflops = double(qr_flops + trsm_flops) * 1.e-6 / milliseconds;
-  std::cout << "magma-ZLRA," << M << "," << N << "," << epi << "," << err << "," << rank << "," << milliseconds << "," << gflops << std::endl;
+  float kernel_time = 0.0f;
+  cudaEventElapsedTime(&kernel_time, start, stop);
+
+  /* Timed region end */
+  std::chrono::duration<double, std::milli> host_wtime = std::chrono::high_resolution_clock::now() - host_start;
+  double duration = host_wtime.count();
+  int64_t qr_flops = (M * N * N * 2) - (N * N * N * 2 / 3), trsm_flops = N * rank * rank;
+  printf("MAGMA-ZGEQP3 [M=%ld,N=%ld] [epi=%.1le] [err=%.12le] [rank=%ld] [host=%lf ms] [kernel=%lf ms] [%lf GFlops]\n",
+    M, N, epi, err, rank, duration, kernel_time, (1.e-6 * double(qr_flops + trsm_flops)) / kernel_time);
   
   cudaFree(dA);
   cudaFree(dC);

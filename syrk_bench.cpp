@@ -40,7 +40,7 @@ template <class T> inline void run(char prec, double epi, int32_t batchIter, int
   cudaMalloc((void**)(&d_X), N * N * sizeof(T));
   cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);
 
-  hyacinHandle_t handle;
+  hyacinHandle_t handle{};
   hyacinCreate(&handle);
 
   syrk_hyac(handle, epi, batchIter, M, N, d_A, M, d_X, N);

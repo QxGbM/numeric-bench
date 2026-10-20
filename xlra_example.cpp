@@ -17,7 +17,7 @@ template <class T> inline void run(char prec, double epi, int32_t batchIter, int
   cudaMalloc((void**)(&jpvt), N * sizeof(int32_t));
   cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);
 
-  hyacinHandle_t handle;
+  hyacinHandle_t handle{};
   hyacinCreate(&handle);
   int32_t rank = hyacinLRA::interp_fit(&handle, epi, 'N', M, N, N, d_A, M, jpvt, d_X, N, M, batchIter);
   hyacinSync_TimerSegments(&handle, nullptr, 0);

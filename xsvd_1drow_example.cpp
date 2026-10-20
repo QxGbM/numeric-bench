@@ -24,7 +24,7 @@ template <class T, class R> inline void run(char prec, double epi, int32_t batch
   cudaMemcpy(d_A, matA.data(), lM * N * sizeof(T), cudaMemcpyHostToDevice);
   int32_t* d_barrier = nullptr; cudaMalloc((void**)(&d_barrier), 5 * sizeof(double));
 
-  hyacinHandle_t handle;
+  hyacinHandle_t handle{};
   ncclComm_t comm;
 
   ncclCommInitRank(&comm, tile_m, id, grid_row);
