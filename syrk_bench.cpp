@@ -13,16 +13,16 @@ template <> inline hyacinPrecision_t hyacin_prec<__half2>() { return HYACIN_F16_
 
 template <class T>
 void syrk_hyac(const hyacinHandle_t* handle, double epi, int32_t M, int32_t N, const T* A, int32_t lda, T* R, int32_t ldr) {
-  int32_t batchIter = handle->GramSegmentK <= 0 ? M : std::min(handle->GramSegmentK, M);
-  std::div_t divM = std::div(M, batchIter); int32_t batches = divM.quot + int32_t(0 < divM.rem), lastM = 0 < divM.rem ? divM.rem : batchIter;
+  int32_t batch = handle->GramSegmentK <= 0 ? M : std::min(handle->GramSegmentK, M);
+  std::div_t divM = std::div(M, batch); int32_t batches = divM.quot + int32_t(0 < divM.rem), lastM = 0 < divM.rem ? divM.rem : batch;
   hyacinPrecision_t Atype = hyacin_prec<T>();
   int32_t* vexp = nullptr, u, cPanels, lPanels; uint64_t strideC;
   cudaMallocFromPoolAsync((void**)&vexp, uint64_t(2) * uint64_t(N) * sizeof(int32_t), handle->mempool, handle->cudaStream);
   hyacinXherkBatchInit(handle, epi, M, N, Atype, &u, &cPanels, &lPanels, &strideC);
-  hyacinXquantizeScaleBatch(handle, batches, batchIter, lastM, N, Atype, A, lda, u, vexp);
+  hyacinXquantizeScaleBatch(handle, batches, batch, lastM, N, Atype, A, lda, u, vexp);
 
   uint64_t* C = nullptr; cudaMallocFromPoolAsync((void**)&C, uint64_t(cPanels) * uint64_t(lPanels) * strideC * sizeof(uint64_t), handle->mempool, handle->cudaStream);
-  hyacinXherkBatch(handle, batches, batchIter, lastM, N, Atype, A, lda, u, vexp, 0, lPanels, C);
+  hyacinXherkBatch(handle, batches, batch, lastM, N, Atype, A, lda, u, vexp, 0, lPanels, C);
 
   hyacinXdequantize(handle, N, lPanels, C, vexp, Atype, R, ldr);
   cudaFreeAsync(vexp, handle->cudaStream); cudaFreeAsync(C, handle->cudaStream);
@@ -67,7 +67,7 @@ template <class T> inline void run(char prec, double epi, int64_t M, int64_t N) 
 
 int32_t main(int32_t argc, char* argv[]) {
   char prec = 'D', algo = 'A';
-  int64_t M = 2048, N = 2048; int32_t u_corr = 5, batchIter = 2048;
+  int64_t M = 2048, N = 2048; int32_t u_corr = 7, batch = 8192;
   double epi = 1.e-12;
 
   for (int32_t i = 1; i < argc; ++i) {
@@ -77,11 +77,11 @@ int32_t main(int32_t argc, char* argv[]) {
     else if (std::strncmp(argv[i], "epi=", 4) == 0) { std::sscanf(argv[i], "epi=%lf", &epi); }
     else if (std::strncmp(argv[i], "algo=", 5) == 0) { std::sscanf(argv[i], "algo=%c", &algo); }
     else if (std::strncmp(argv[i], "u_corr=", 7) == 0) { std::sscanf(argv[i], "u_corr=%d", &u_corr); }
-    else if (std::strncmp(argv[i], "batchIter=", 10) == 0) { std::sscanf(argv[i], "batchIter=%d", &batchIter); }
+    else if (std::strncmp(argv[i], "batch=", 6) == 0) { std::sscanf(argv[i], "batch=%d", &batch); }
     else { std::cerr << "Ignored parameter: " << argv[i] << std::endl; }
   }
   N = std::min(M, N);
-  handle_param_environments(algo, u_corr, 0, 0);
+  handle_param_environments(algo, batch, u_corr, 0);
 
   auto cu_err = cudaSetDevice(0);
   cudaDeviceReset();

@@ -243,10 +243,10 @@ double fnorm(int32_t M, int32_t N, const T* A, int32_t lda) {
   return nrm;
 }
 
-void handle_param_environments(char algo, int32_t u_corr, int32_t g_corr, int32_t jacobi_sweeps) {
+void handle_param_environments(char algo, int32_t batch, int32_t u_corr, int32_t jacobi_sweeps) {
   setenv("HYACIN_GRAM_ALGORITHM", std::string(1, algo).c_str(), 1);
+  setenv("HYACIN_GRAM_SEGMENT_K", std::to_string(batch).c_str(), 1);
   setenv("HYACIN_QUANTIZE_BITS_CORR", std::to_string(u_corr).c_str(), 1);
-  setenv("HYACIN_GRAM_BITS_CORR", std::to_string(g_corr).c_str(), 1);
   setenv("HYACIN_JACOBI_SVD_SWEEPS", std::to_string(jacobi_sweeps).c_str(), 1);
 }
 

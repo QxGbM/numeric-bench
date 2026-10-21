@@ -53,7 +53,7 @@ template <class T> inline void run(char prec, double epi, int64_t M, int64_t N) 
 
 int32_t main(int32_t argc, char* argv[]) {
   char prec = 'D', algo = 'A';
-  int64_t M = 2048, N = 2048; int32_t u_corr = 5, g_corr = 0, batchIter = 2048;
+  int64_t M = 2048, N = 2048; int32_t u_corr = 7, batch = 8192;
   double epi = 1.e-12;
 
   for (int32_t i = 1; i < argc; ++i) {
@@ -63,12 +63,11 @@ int32_t main(int32_t argc, char* argv[]) {
     else if (std::strncmp(argv[i], "epi=", 4) == 0) { std::sscanf(argv[i], "epi=%lf", &epi); }
     else if (std::strncmp(argv[i], "algo=", 5) == 0) { std::sscanf(argv[i], "algo=%c", &algo); }
     else if (std::strncmp(argv[i], "u_corr=", 7) == 0) { std::sscanf(argv[i], "u_corr=%d", &u_corr); }
-    else if (std::strncmp(argv[i], "g_corr=", 7) == 0) { std::sscanf(argv[i], "g_corr=%d", &g_corr); }
-    else if (std::strncmp(argv[i], "batchIter=", 10) == 0) { std::sscanf(argv[i], "batchIter=%d", &batchIter); }
+    else if (std::strncmp(argv[i], "batch=", 6) == 0) { std::sscanf(argv[i], "batch=%d", &batch); }
     else { std::cerr << "Ignored parameter: " << argv[i] << std::endl; }
   }
   N = std::min(M, N);
-  handle_param_environments(algo, u_corr, g_corr, 0);
+  handle_param_environments(algo, batch, u_corr, 0);
 
   auto cu_err = cudaSetDevice(0);
   cudaDeviceReset();
