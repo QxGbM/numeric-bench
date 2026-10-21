@@ -36,8 +36,8 @@ template <class T, class R> inline void run(char prec, double epi, int64_t M, in
     rank = hyacinTsvdFitSegmentN(&handle, epi, 'N', M, N, K, d_A, M, d_S, d_V, N, M, hyacin_prec<T>());
 
   double eventMs[2]{ 'D', 'R' }; hyacinSync_TimerSegments(&handle, eventMs, 2);
-  double nrm = hyacinCheckNorm(&handle, M, N, d_A, M, 0, nullptr, 0, hyacin_prec<T>());
-  double err = nrm == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(hyacinCheckNorm(&handle, M, N, d_A, M, rank, d_V, N, hyacin_prec<T>()) / nrm);
+  double nrm = hyacinCheckNorm(&handle, 'N', M, N, d_A, M, 0, nullptr, 0, hyacin_prec<T>());
+  double err = nrm == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(hyacinCheckNorm(&handle, 'N', M, N, d_A, M, rank, d_V, N, hyacin_prec<T>()) / nrm);
   double kernel_time = eventMs[0] + eventMs[1];
   hyacinDestroy(&handle);
   std::vector<R> vecS(K);
@@ -70,7 +70,6 @@ int32_t main(int32_t argc, char* argv[]) {
     else if (std::strncmp(argv[i], "batch=", 6) == 0) { std::sscanf(argv[i], "batch=%d", &batch); }
     else { std::cerr << "Ignored parameter: " << argv[i] << std::endl; }
   }
-  N = std::min(M, N); K = std::min(N, K);
   handle_param_environments(algo, batch, u_corr, jacobi_sweeps);
 
   auto cu_err = cudaSetDevice(0);

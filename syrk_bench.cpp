@@ -80,7 +80,6 @@ int32_t main(int32_t argc, char* argv[]) {
     else if (std::strncmp(argv[i], "batch=", 6) == 0) { std::sscanf(argv[i], "batch=%d", &batch); }
     else { std::cerr << "Ignored parameter: " << argv[i] << std::endl; }
   }
-  N = std::min(M, N);
   handle_param_environments(algo, batch, u_corr, 0);
 
   auto cu_err = cudaSetDevice(0);

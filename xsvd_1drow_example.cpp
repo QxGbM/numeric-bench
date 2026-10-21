@@ -47,7 +47,7 @@ template <class T, class R> inline void run(char prec, double epi, int64_t gM, i
 
   double eventMs[3]{ 'D', 'R', 'C' }; hyacinSync_TimerSegments(&handle, eventMs, 3);
   double kernel_time = eventMs[0] + eventMs[1] + eventMs[2], rep_time = eventMs[1], comm_time = eventMs[2];
-  double ret[5]{ kernel_time, rep_time, comm_time, hyacinCheckNorm(&handle, lM, N, d_A, lM, rank, d_V, N, hyacin_prec<T>()), hyacinCheckNorm(&handle, lM, N, d_A, lM, 0, nullptr, 0, hyacin_prec<T>()) };
+  double ret[5]{ kernel_time, rep_time, comm_time, hyacinCheckNorm(&handle, 'N', lM, N, d_A, lM, rank, d_V, N, hyacin_prec<T>()), hyacinCheckNorm(&handle, 'N', lM, N, d_A, lM, 0, nullptr, 0, hyacin_prec<T>()) };
   cudaMemcpy(d_barrier, ret, 5 * sizeof(double), cudaMemcpyHostToDevice);
   ncclAllReduce(d_barrier, d_barrier, 5, ncclDouble, ncclSum, comm, handle.cudaStream);
   cudaStreamSynchronize(handle.cudaStream);
@@ -89,7 +89,6 @@ int32_t main(int32_t argc, char* argv[]) {
     else if (std::strncmp(argv[i], "batch=", 6) == 0) { std::sscanf(argv[i], "batch=%d", &batch); }
     else { std::cerr << "Ignored parameter: " << argv[i] << std::endl; }
   }
-  N = std::min(gM, N); K = std::min(N, K);
   handle_param_environments(algo, batch, u_corr, jacobi_sweeps);
 
   int32_t world_rank, world_size, local_rank; ncclUniqueId id;
