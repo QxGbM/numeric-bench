@@ -248,6 +248,7 @@ void handle_param_environments(char algo, int32_t batch, int32_t u_corr, int32_t
   setenv("HYACIN_GRAM_SEGMENT_K", std::to_string(batch).c_str(), 1);
   setenv("HYACIN_QUANTIZE_BITS_CORR", std::to_string(u_corr).c_str(), 1);
   setenv("HYACIN_JACOBI_SVD_SWEEPS", std::to_string(jacobi_sweeps).c_str(), 1);
+  setenv("HYACIN_CREATE_TIMER", "1", 1);
 }
 
 #ifndef NO_NCCL

@@ -6,6 +6,17 @@ int32_t main(int32_t argc, char* argv[]) {
   auto cu_err = cudaSetDevice(0);
   if (cu_err != cudaSuccess)
   { fprintf(stderr, "%s\n", cudaGetErrorString(cu_err)); return -1; }
+
+  int64_t M = 2048, N = 2048, K = 2048; int32_t oversampling = 0, power_iter = 0;
+  for (int32_t i = 1; i < argc; ++i) {
+    if (std::strncmp(argv[i], "M=", 2) == 0) { std::sscanf(argv[i], "M=%ld", &M); }
+    else if (std::strncmp(argv[i], "N=", 2) == 0) { std::sscanf(argv[i], "N=%ld", &N); }
+    else if (std::strncmp(argv[i], "K=", 2) == 0) { std::sscanf(argv[i], "K=%ld", &K); }
+    else if (std::strncmp(argv[i], "oversampling=", 13) == 0) { std::sscanf(argv[i], "oversampling=%d", &oversampling); }
+    else if (std::strncmp(argv[i], "piters=", 7) == 0) { std::sscanf(argv[i], "piters=%d", &power_iter); }
+    else { std::cerr << "Ignored parameter: " << argv[i] << std::endl; }
+  }
+  K = std::min(M, std::min(N, K));
   
   cudaStream_t stream;
   cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
@@ -24,15 +35,6 @@ int32_t main(int32_t argc, char* argv[]) {
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
   cudaEventCreate(&stop);
-
-  int64_t M = 1 < argc ? std::atoi(argv[1]) : 1024;
-  int64_t N = 2 < argc ? std::atoi(argv[2]) : 128;
-  N = std::min(M, N);
-
-  int64_t K = 3 < argc ? std::atoi(argv[3]) : 128;
-  int64_t oversampling = 4 < argc ? std::atoi(argv[4]) : 0;
-  int32_t power_iter = 5 < argc ? std::atoi(argv[5]) : 0;
-  K = std::min(K, N);
  
   std::vector<std::complex<double>> matA(M * N, 0.);
   std::vector<double> S(N);
