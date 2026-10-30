@@ -16,10 +16,11 @@ int32_t main(int32_t argc, char* argv[]) {
     else if (std::strncmp(argv[i], "piters=", 7) == 0) { std::sscanf(argv[i], "piters=%d", &power_iter); }
     else { std::cerr << "Ignored parameter: " << argv[i] << std::endl; }
   }
-  K = std::min(M, std::min(N, K));
+  oversampling = std::max(0, oversampling);
+  K = std::min(K, std::min(M, N) - (1 + oversampling));
   
   cudaStream_t stream;
-  cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking);
+  cudaStreamCreateWithFlags(&stream, cudaStreamDefault);
 
   cublasHandle_t cublasH;
   cublasCreate(&cublasH);
@@ -37,48 +38,39 @@ int32_t main(int32_t argc, char* argv[]) {
   cudaEventCreate(&stop);
  
   std::vector<std::complex<double>> matA(M * N, 0.);
-  std::vector<double> S(N);
   matrix_generator<std::complex<double>>(1., M, N).generate_block(512, 512, &matA[0], M);
 
   std::complex<double>* dA = nullptr, *dU = nullptr, *dV = nullptr;
-  double* dS = nullptr;
-  int32_t* info = nullptr;
+  double* dS = nullptr; int* info = nullptr;
   cudaMalloc((void**)(&dA), M * N * sizeof(std::complex<double>));
-  cudaMalloc((void**)(&dU), M * N * sizeof(std::complex<double>));
-  cudaMalloc((void**)(&dV), N * N * sizeof(std::complex<double>));
+  cudaMalloc((void**)(&dU), M * K * sizeof(std::complex<double>));
+  cudaMalloc((void**)(&dV), N * K * sizeof(std::complex<double>));
   cudaMalloc((void**)(&dS), N * sizeof(double));
-  cudaMalloc((void**)(&info), sizeof(int32_t));
+  cudaMalloc((void**)(&info), sizeof(int));
   cudaMemcpy(dA, matA.data(), M * N * sizeof(std::complex<double>), cudaMemcpyHostToDevice);
 
   size_t workspaceInBytesOnDevice, workspaceInBytesOnHost;
-  cusolverDnXgesvdr_bufferSize(cusolverH, params, 'S', 'S', M, N, K, oversampling, power_iter,
-    CUDA_C_64F, dA, M, CUDA_R_64F, dS, CUDA_C_64F, dU, M, CUDA_C_64F, dV, N, CUDA_C_64F, &workspaceInBytesOnDevice, &workspaceInBytesOnHost);
+  cusolverDnXgesvdr_bufferSize(cusolverH, params, 'N', 'S', M, N, K, oversampling, power_iter,
+    CUDA_C_64F, dA, M, CUDA_R_64F, dS, CUDA_C_64F, nullptr, M, CUDA_C_64F, dV, N, CUDA_C_64F, &workspaceInBytesOnDevice, &workspaceInBytesOnHost);
 
   void* hWork = std::malloc(workspaceInBytesOnHost), *dWork;
   cudaMalloc(&dWork, workspaceInBytesOnDevice);
 
-  cusolverDnXgesvdr(cusolverH, params, 'S', 'S', M, N, K, oversampling, power_iter,
-    CUDA_C_64F, dA, M, CUDA_R_64F, dS, CUDA_C_64F, dU, M, CUDA_C_64F, dV, N, CUDA_C_64F, dWork, workspaceInBytesOnDevice, hWork, workspaceInBytesOnHost, info);
-  cudaDeviceSynchronize();
-  int32_t hinfo;
-  cudaMemcpy(&hinfo, info, sizeof(int32_t), cudaMemcpyDeviceToHost);
-  cudaMemcpy(S.data(), dS, N * sizeof(double), cudaMemcpyDeviceToHost);
+  cusolverDnXgesvdr(cusolverH, params, 'N', 'S', M, N, K, oversampling, power_iter,
+    CUDA_C_64F, dA, M, CUDA_R_64F, dS, CUDA_C_64F, nullptr, M, CUDA_C_64F, dV, N, CUDA_C_64F, dWork, workspaceInBytesOnDevice, hWork, workspaceInBytesOnHost, info);
   cudaMemcpy(dA, matA.data(), M * N * sizeof(std::complex<double>), cudaMemcpyHostToDevice);
 
-  double nrm = 0., err = 0.; std::complex<double> minus_one(-1., 0.), one(1., 0.);
+  double nrm = 0., err = 0.; std::complex<double> minus_one(-1., 0.), one(1., 0.), zero(0., 0.);
   cublasDznrm2_64(cublasH, M * N, (cuDoubleComplex*)dA, int64_t(1), &nrm);
-  for (int32_t i = 0; i < K; ++i)
-    cublasZdscal(cublasH, M, &S[i], (cuDoubleComplex*)&dU[i * M], 1);
+  cublasZgemm(cublasH, CUBLAS_OP_N, CUBLAS_OP_N, M, K, N, (cuDoubleComplex*)&one, (const cuDoubleComplex*)dA, M, (const cuDoubleComplex*)dV, N, (cuDoubleComplex*)&zero, (cuDoubleComplex*)dU, M);
   cublasZgemm(cublasH, CUBLAS_OP_N, CUBLAS_OP_C, M, N, K, (cuDoubleComplex*)&minus_one, (const cuDoubleComplex*)dU, M, (const cuDoubleComplex*)dV, N, (cuDoubleComplex*)&one, (cuDoubleComplex*)dA, M);
   cublasDznrm2_64(cublasH, M * N, (cuDoubleComplex*)dA, int64_t(1), &err);
-
-  cudaDeviceSynchronize();
   cudaMemcpy(dA, matA.data(), M * N * sizeof(std::complex<double>), cudaMemcpyHostToDevice);
   err = err / nrm;
 
   cudaEventRecord(start, stream);
   cusolverDnXgesvdr(cusolverH, params, 'N', 'S', M, N, K, oversampling, power_iter,
-    CUDA_C_64F, dA, M, CUDA_R_64F, dS, CUDA_C_64F, dU, M, CUDA_C_64F, dV, N, CUDA_C_64F, dWork, workspaceInBytesOnDevice, hWork, workspaceInBytesOnHost, info);
+    CUDA_C_64F, dA, M, CUDA_R_64F, dS, CUDA_C_64F, nullptr, M, CUDA_C_64F, dV, N, CUDA_C_64F, dWork, workspaceInBytesOnDevice, hWork, workspaceInBytesOnHost, info);
   cudaEventRecord(stop, stream);
 
   cudaDeviceSynchronize();
