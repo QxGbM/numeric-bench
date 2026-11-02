@@ -111,7 +111,7 @@ template <class T> struct matrix_generator {
     for (int64_t i = 0; i < nbodies; ++i) {
       double di = double(i);
       double x = 1. - (di * dn);  // x goes from -r to r.
-      double radius = std::sqrt(1. - x * x); // radius at x
+      double radius = std::sqrt(1. - std::min(1., x * x)); // radius at x
       bodies[i * 3] = x * rx;
       bodies[i * 3 + 1] = radius * std::cos(di * phi) * ry;
       bodies[i * 3 + 2] = radius * std::sin(di * phi) * rz;
