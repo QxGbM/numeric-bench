@@ -1,5 +1,5 @@
 
-#include <common.hpp>
+#include <benchmark_flops.hpp>
 #include <iostream>
 #include <chrono>
 
@@ -20,10 +20,10 @@ template <class T> inline void run(char prec, double epi, int64_t M, int64_t N) 
   auto host_start = std::chrono::high_resolution_clock::now();
 
   T* d_A = nullptr, *d_X = nullptr; int32_t* jpvt = nullptr;
-  cudaMalloc((void**)(&d_A), M * N * sizeof(T));
-  cudaMalloc((void**)(&d_X), N * N * sizeof(T));
-  cudaMalloc((void**)(&jpvt), N * sizeof(int32_t));
-  cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);
+  LIBRARY_CHECK(cudaMalloc((void**)(&d_A), M * N * sizeof(T)));
+  LIBRARY_CHECK(cudaMalloc((void**)(&d_X), N * N * sizeof(T)));
+  LIBRARY_CHECK(cudaMalloc((void**)(&jpvt), N * sizeof(int32_t)));
+  LIBRARY_CHECK(cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice));
 
   hyacinHandle_t handle{};
   hyacinCreate(&handle);
@@ -39,19 +39,22 @@ template <class T> inline void run(char prec, double epi, int64_t M, int64_t N) 
   double kernel_time = eventMs[0] + eventMs[1];
   hyacinDestroy(&handle);
 
-  cudaFree(d_A);
-  cudaFree(d_X);
-  cudaFree(jpvt);
+  LIBRARY_CHECK(cudaFree(d_A));
+  LIBRARY_CHECK(cudaFree(d_X));
+  LIBRARY_CHECK(cudaFree(jpvt));
 
   /* Timed region end */
   std::chrono::duration<double, std::milli> host_wtime = std::chrono::high_resolution_clock::now() - host_start;
   double duration = host_wtime.count();
 
-  printf("%c-LRA [M=%ld,N=%ld] [epi=%.1le] [err=%.12le] [rank=%d] [host=%lf ms] [kernel=%lf ms]\n",
-    prec, M, N, epi, err, rank, duration, kernel_time / double(kernel_runs));
+  kernel_time /= double(kernel_runs);
+  const double flops = interpolative_flops(double(M), double(N), double(rank), benchmark_flop_factor<T>);
+
+  printf("%c-LRA [M=%ld,N=%ld] [epi=%.1le] [err=%.12le] [rank=%d] [host=%lf ms] [kernel=%lf ms] [flops=%.6le] [%lf GFlops]\n",
+    prec, M, N, epi, err, rank, duration, kernel_time, flops, (1.e-6 * flops) / kernel_time);
 }
 
-int32_t main(int32_t argc, char* argv[]) {
+int32_t main(int32_t argc, char* argv[]) try {
   char prec = 'D', algo = 'A';
   int64_t M = 2048, N = 2048; int32_t u_corr = 7, batch = 8192;
   double epi = 1.e-12;
@@ -68,10 +71,8 @@ int32_t main(int32_t argc, char* argv[]) {
   }
   handle_param_environments(algo, batch, u_corr, 0);
 
-  auto cu_err = cudaSetDevice(0);
-  cudaDeviceReset();
-  if (cu_err != cudaSuccess)
-  { std::cerr << cudaGetErrorString(cu_err) << std::endl; return -1; }
+  LIBRARY_CHECK(cudaSetDevice(0));
+  LIBRARY_CHECK(cudaDeviceReset());
 
   switch(prec) {
     case 'D': run<double>(prec, epi, M, N); break;
@@ -83,8 +84,11 @@ int32_t main(int32_t argc, char* argv[]) {
     default: break;
   }
 
-  cu_err = cudaGetLastError();
-  if (cu_err != cudaSuccess)
-    std::cerr << cudaGetErrorString(cu_err) << std::endl;
+  LIBRARY_CHECK(cudaGetLastError());
   return 0;
+}
+
+catch (const std::exception& error) {
+  fprintf(stderr, "%s\n", error.what());
+  return EXIT_FAILURE;
 }

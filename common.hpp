@@ -15,8 +15,38 @@
 #include <type_traits>
 #include <cuda_fp16.h>
 
+// Report the failed expression and its source location immediately.
+inline void library_check(cudaError_t status, const char* call, const char* file, int line) {
+  if (status != cudaSuccess)
+    throw std::runtime_error(std::string(file) + ":" + std::to_string(line) + ": " + call + ": " + cudaGetErrorString(status));
+}
+inline void library_check(cublasStatus_t status, const char* call, const char* file, int line) {
+  if (status != CUBLAS_STATUS_SUCCESS)
+    throw std::runtime_error(std::string(file) + ":" + std::to_string(line) + ": " + call + ": cuBLAS status " + std::to_string(int(status)));
+}
+inline void library_check(cusolverStatus_t status, const char* call, const char* file, int line) {
+  if (status != CUSOLVER_STATUS_SUCCESS)
+    throw std::runtime_error(std::string(file) + ":" + std::to_string(line) + ": " + call + ": cuSOLVER status " + std::to_string(int(status)));
+}
+#ifndef NO_NCCL
+inline void library_check(ncclResult_t status, const char* call, const char* file, int line) {
+  if (status != ncclSuccess)
+    throw std::runtime_error(std::string(file) + ":" + std::to_string(line) + ": " + call + ": " + ncclGetErrorString(status));
+}
+#endif
+#define LIBRARY_CHECK(call) library_check((call), #call, __FILE__, __LINE__)
+
+inline void check_solver_info(int* device_info, cudaStream_t stream, const char* routine) {
+  int info = 0;
+  LIBRARY_CHECK(cudaMemcpyAsync(&info, device_info, sizeof(info), cudaMemcpyDeviceToHost, stream));
+  LIBRARY_CHECK(cudaStreamSynchronize(stream));
+  if (info != 0)
+    throw std::runtime_error(std::string(routine) + " returned info=" + std::to_string(info));
+}
+
 using blas_int = int; // LP64 for blas
 const int32_t kernel_runs = 3;
+static_assert(kernel_runs > 0, "kernel_runs must be positive");
 double kernel_time = 0., rep_time = 0., comm_time = 0.;
 
 template <class T, class S> inline T conv(S x) {
@@ -197,9 +227,9 @@ template <class T> struct matrix_generator {
 
 extern "C" void dgemm_(const char*, const char*, const blas_int*, const blas_int*, const blas_int*, const double*, const double*, const blas_int*, const double*, const blas_int*, const double*, double*, const blas_int*);
 extern "C" void zgemm_(const char*, const char*, const blas_int*, const blas_int*, const blas_int*, const void*, const void*, const blas_int*, const void*, const blas_int*, const void*, void*, const blas_int*);
-inline void nngemm(blas_int M, blas_int N, blas_int K, const double* A, blas_int lda, const double* B, blas_int ldb, double* C, blas_int ldc)
+inline void ncgemm(blas_int M, blas_int N, blas_int K, const double* A, blas_int lda, const double* B, blas_int ldb, double* C, blas_int ldc)
 { char transa = 'N', transb = 'T'; double one = 1., minus_one = -1.; dgemm_(&transa, &transb, &M, &N, &K, &minus_one, A, &lda, B, &ldb, &one, C, &ldc); }
-inline void nngemm(blas_int M, blas_int N, blas_int K, const std::complex<double>* A, blas_int lda, const std::complex<double>* B, blas_int ldb, std::complex<double>* C, blas_int ldc)
+inline void ncgemm(blas_int M, blas_int N, blas_int K, const std::complex<double>* A, blas_int lda, const std::complex<double>* B, blas_int ldb, std::complex<double>* C, blas_int ldc)
 { char transa = 'N', transb = 'C'; std::complex<double> one(1., 0.), minus_one(-1., 0.); zgemm_(&transa, &transb, &M, &N, &K, &minus_one, A, &lda, B, &ldb, &one, C, &ldc); }
 
 template <class T>
@@ -217,7 +247,7 @@ double check_answer_svd(int32_t M, int32_t N, int32_t rank, const T* U, int32_t 
       for (int32_t k = 0; k < rank; k += block) {
         int32_t reduc = std::min(rank - k, block);
         copy2d(rows, reduc, &U[int64_t(i) + int64_t(k) * int64_t(ldu)], ldu, &matU[0], block); copy2d(cols, reduc, &V[int64_t(j) + int64_t(k) * int64_t(ldv)], ldv, &matV[0], block);
-        nngemm(rows, cols, reduc, &matU[0], block, &matV[0], block, &matB[0], rows);
+        ncgemm(rows, cols, reduc, &matU[0], block, &matV[0], block, &matB[0], rows);
       }
       err = std::transform_reduce(matB.begin(), matB.begin() + int64_t(rows) * int64_t(cols), err, std::plus<double>(), [](auto i) { return std::norm(i); });
     }
@@ -263,7 +293,7 @@ void bootstrap_posix_fork(int32_t& world_rank, int32_t& local_rank, int32_t& wor
   std::string dev_str(devices);
   world_size = 1 + std::count(dev_str.begin(), dev_str.end(), ',');
   int32_t rank = 0;
-  ncclGetUniqueId(&id);
+  LIBRARY_CHECK(ncclGetUniqueId(&id));
   for (int32_t i = 1; i < world_size; ++i) if (rank == 0) {
     int32_t pid = ::fork();
     if (pid == -1) { throw std::runtime_error("POSIX Fork Failure"); }
@@ -284,7 +314,7 @@ void bootstrap_mpi(int32_t& world_rank, int32_t& local_rank, int32_t& world_size
   MPI_Comm_size(MPI_COMM_WORLD, &world_size);
   MPI_Comm_free(&shmcomm);
 
-  if (world_rank == 0) ncclGetUniqueId(&id);
+  if (world_rank == 0) LIBRARY_CHECK(ncclGetUniqueId(&id));
   MPI_Bcast(&id, sizeof(ncclUniqueId), MPI_BYTE, 0, MPI_COMM_WORLD);
   MPI_Finalize();
 }

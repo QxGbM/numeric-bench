@@ -17,15 +17,15 @@ void syrk_hyac(const hyacinHandle_t* handle, double epi, int32_t M, int32_t N, c
   std::div_t divM = std::div(M, batch); int32_t batches = divM.quot + int32_t(0 < divM.rem), lastM = 0 < divM.rem ? divM.rem : batch;
   hyacinPrecision_t Atype = hyacin_prec<T>();
   int32_t* vexp = nullptr, u, cPanels, lPanels; uint64_t strideC;
-  cudaMallocFromPoolAsync((void**)&vexp, uint64_t(2) * uint64_t(N) * sizeof(int32_t), handle->mempool, handle->cudaStream);
+  LIBRARY_CHECK(cudaMallocFromPoolAsync((void**)&vexp, uint64_t(2) * uint64_t(N) * sizeof(int32_t), handle->mempool, handle->cudaStream));
   hyacinXherkBatchInit(handle, epi, M, N, Atype, &u, &cPanels, &lPanels, &strideC);
   hyacinXquantizeScaleBatch(handle, batches, batch, lastM, N, Atype, A, lda, u, vexp);
 
-  uint64_t* C = nullptr; cudaMallocFromPoolAsync((void**)&C, uint64_t(cPanels) * uint64_t(lPanels) * strideC * sizeof(uint64_t), handle->mempool, handle->cudaStream);
+  uint64_t* C = nullptr; LIBRARY_CHECK(cudaMallocFromPoolAsync((void**)&C, uint64_t(cPanels) * uint64_t(lPanels) * strideC * sizeof(uint64_t), handle->mempool, handle->cudaStream));
   hyacinXherkBatch(handle, batches, batch, lastM, N, Atype, A, lda, u, vexp, 0, lPanels, C);
 
   hyacinXdequantize(handle, N, lPanels, C, vexp, Atype, R, ldr);
-  cudaFreeAsync(vexp, handle->cudaStream); cudaFreeAsync(C, handle->cudaStream);
+  LIBRARY_CHECK(cudaFreeAsync(vexp, handle->cudaStream)); LIBRARY_CHECK(cudaFreeAsync(C, handle->cudaStream));
 }
 
 template <class T> inline void run(char prec, double epi, int64_t M, int64_t N) {
@@ -36,9 +36,9 @@ template <class T> inline void run(char prec, double epi, int64_t M, int64_t N) 
   auto host_start = std::chrono::high_resolution_clock::now();
 
   T* d_A = nullptr, * d_X = nullptr;
-  cudaMalloc((void**)(&d_A), M * N * sizeof(T));
-  cudaMalloc((void**)(&d_X), N * N * sizeof(T));
-  cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice);
+  LIBRARY_CHECK(cudaMalloc((void**)(&d_A), M * N * sizeof(T)));
+  LIBRARY_CHECK(cudaMalloc((void**)(&d_X), N * N * sizeof(T)));
+  LIBRARY_CHECK(cudaMemcpy(d_A, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice));
 
   hyacinHandle_t handle{};
   hyacinCreate(&handle);
@@ -52,8 +52,8 @@ template <class T> inline void run(char prec, double epi, int64_t M, int64_t N) 
   double eventMs[2]{ 'D', 'R' }; hyacinSync_TimerSegments(&handle, eventMs, 2);
   double kernel_time = eventMs[0] + eventMs[1];
   hyacinDestroy(&handle);
-  cudaFree(d_A);
-  cudaFree(d_X);
+  LIBRARY_CHECK(cudaFree(d_A));
+  LIBRARY_CHECK(cudaFree(d_X));
 
   /* Timed region end */
   std::chrono::duration<double, std::milli> host_wtime = std::chrono::high_resolution_clock::now() - host_start;
@@ -65,7 +65,7 @@ template <class T> inline void run(char prec, double epi, int64_t M, int64_t N) 
     prec, M, N, epi, duration, kernel_time, (1.e-9 * double(flops)) / kernel_time);
 }
 
-int32_t main(int32_t argc, char* argv[]) {
+int32_t main(int32_t argc, char* argv[]) try {
   char prec = 'D', algo = 'A';
   int64_t M = 2048, N = 2048; int32_t u_corr = 7, batch = 8192;
   double epi = 1.e-12;
@@ -82,10 +82,8 @@ int32_t main(int32_t argc, char* argv[]) {
   }
   handle_param_environments(algo, batch, u_corr, 0);
 
-  auto cu_err = cudaSetDevice(0);
-  cudaDeviceReset();
-  if (cu_err != cudaSuccess)
-  { std::cerr << cudaGetErrorString(cu_err) << std::endl; return -1; }
+  LIBRARY_CHECK(cudaSetDevice(0));
+  LIBRARY_CHECK(cudaDeviceReset());
 
   switch(prec) {
     case 'D': run<double>(prec, epi, M, N); break;
@@ -97,8 +95,11 @@ int32_t main(int32_t argc, char* argv[]) {
     default: break;
   }
 
-  cu_err = cudaGetLastError();
-  if (cu_err != cudaSuccess)
-    std::cerr << cudaGetErrorString(cu_err) << std::endl;
+  LIBRARY_CHECK(cudaGetLastError());
   return 0;
+}
+
+catch (const std::exception& error) {
+  fprintf(stderr, "%s\n", error.what());
+  return EXIT_FAILURE;
 }
