@@ -60,76 +60,6 @@ template <class T, class S> inline T conv(S x) {
 template <class T, class S> inline void copy2d(int32_t M, int32_t N, const S* A, int32_t lda, T* B, int32_t ldb)
 { for (int32_t j = 0; j < N; ++j) { std::transform(&A[int64_t(j) * int64_t(lda)], &A[int64_t(j) * int64_t(lda) + int64_t(M)], &B[int64_t(j) * int64_t(ldb)], [](S x) { return conv<T>(x); }); } }
 
-std::string replace_suffix(const std::string& str, const std::string& suffix) {
-  std::string result = str;
-  std::size_t pos = result.rfind('.');
-  if (pos == std::string::npos) { result += '.' + suffix; }
-  else { result.replace(pos + 1, std::string::npos, suffix); }
-  return result;
-}
-
-template <class T>
-void matrix_from_row_major_csv(int32_t M, int32_t N, int32_t mb, int32_t nb, T* A, int32_t lda, const std::string& file, int32_t grid_row = 0, int32_t grid_col = 0, int32_t tile_m = 1, int32_t tile_n = 1) {
-  std::ifstream csv(replace_suffix(file, "csv")), idx(replace_suffix(file, "cache"));
-  std::vector<int64_t> row_bytes;
-  if (idx.is_open()) 
-  { while (!idx.eof() && row_bytes.size() <= size_t(M)) { int64_t i; idx >> i; row_bytes.push_back(i); } idx.close(); }
-
-  for (int32_t i = grid_row * mb, y = 0; i < M; i = grid_row * mb + tile_m * (y += mb)) {
-    int32_t rows = std::min(M - i, mb);
-    std::vector<T> mat(int64_t(rows) * int64_t(N));
-
-    if (csv.is_open()) {
-      int64_t start_byte = row_bytes[i], n_bytes = row_bytes[i + rows] - start_byte;
-      std::vector<char> buf(n_bytes); char* str = &buf[0], *end = &buf[n_bytes];
-      csv.seekg(start_byte, std::ios::beg); csv.read(str, n_bytes);
-      auto cmp = [](char c){ return c == ' ' || c == ',' || c == '\n' || c == '(' || c == ')'; };
-      while(cmp(*str)) ++str;
-
-      for (int32_t y = 0; y < rows; ++y)
-        for (int32_t x = 0; x < N; ++x) {
-          std::string Ayx(str, std::distance(str, std::find_if(str, end, cmp)));
-          int64_t i = int64_t(y) + int64_t(x) * int64_t(rows);
-          if constexpr(std::is_same_v<T, double> || std::is_same_v<T, float> || std::is_same_v<T, __half>) { mat[i] = T(std::stod(Ayx)); } else {
-            std::string::size_type l; double rl = std::stod(Ayx, &l);
-            try { double im = std::stod(Ayx.substr(l)); mat[i] = conv<T>(std::complex<double>(rl, im)); }
-              catch (const std::invalid_argument&) { mat[i] = conv<T>(std::complex<double>(rl, 0.)); }
-          }
-          str += Ayx.length(); while(cmp(*str)) ++str;
-        }
-    }
-
-    for (int32_t j = grid_col * nb, x = 0; j < N; j = grid_col * nb + tile_n * (x += nb))
-      copy2d(rows, std::min(N - j, nb), &mat[int64_t(j) * int64_t(rows)], rows, &A[int64_t(y) + int64_t(x) * int64_t(lda)], lda);
-  }
-
-  if (csv.is_open())
-    csv.close();
-}
-
-template <class T>
-void write_matrix_to_csv(int32_t M, int32_t N, const T* A, int32_t lda, const std::string& file) {
-  std::ofstream csv(replace_suffix(file, "csv")), idx(replace_suffix(file, "cache"));
-  if (csv.is_open() && idx.is_open()) {
-    int64_t bytes = 0; idx << "0\n";
-    for (int32_t i = 0; i < M; ++i) {
-      std::string str;
-      for (int32_t j = 0; j < N; ++j) {
-        int64_t k = int64_t(i) + int64_t(j) * int64_t(lda);
-        char s[70];
-        if constexpr(std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, __half2>)
-        { std::complex<double> c = conv<std::complex<double>>(A[k]); char sign = 0. <= double(c.imag()) ? '+':'-'; std::sprintf(s, " (%.18le%c%.18lej)", c.real(), sign, std::abs(c.imag())); }
-          else { std::sprintf(s, "%.18le", double(A[k])); }
-        str += (j == 0 ? "" : ",") + std::string(s);
-      }
-      str += '\n'; bytes += str.size();
-      csv << str; idx << bytes << '\n';
-    }
-    csv.close(); idx.close();
-    printf("[M=%d,N=%d] Matrix is written to %s\n", M, N, file.c_str());
-  }
-}
-
 template <class T> struct matrix_generator {
   int64_t gM, gN;
   std::vector<double> bodies;
@@ -146,11 +76,6 @@ template <class T> struct matrix_generator {
       bodies[i * 3 + 1] = radius * std::cos(di * phi) * ry;
       bodies[i * 3 + 2] = radius * std::sin(di * phi) * rz;
     }
-    /*std::mt19937_64 gen(999);
-    std::uniform_real_distribution<double> uniform_dist(0., 1.);
-    std::array<double, 3>* b3 = reinterpret_cast<std::array<double, 3>*>(&bodies[0]);
-    std::array<double, 3>* b3_end = reinterpret_cast<std::array<double, 3>*>(&bodies[3 * nbodies]);
-    std::for_each(b3, b3_end, [&](std::array<double, 3>& body) { body[0] = uniform_dist(gen); body[1] = uniform_dist(gen); body[2] = uniform_dist(gen); });*/
 
     auto get_bounds = [](const double* bodies, int64_t nbodies, double R[], double C[]) {
       const std::array<double, 3>* b3 = reinterpret_cast<const std::array<double, 3>*>(&bodies[0]);

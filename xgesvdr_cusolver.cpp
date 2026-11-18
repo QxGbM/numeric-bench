@@ -4,7 +4,7 @@
 
 template <class T>
 int32_t run(int32_t argc, char* argv[]) {
-  int64_t M = 2048, N = 2048, K = 2048; int32_t oversampling = 0, power_iter = 0;
+  int64_t M = 2048, N = 2048, K = 1500; int32_t oversampling = 0, power_iter = 0;
   for (int32_t i = 1; i < argc; ++i) {
     if (std::strncmp(argv[i], "M=", 2) == 0) { std::sscanf(argv[i], "M=%ld", &M); }
     else if (std::strncmp(argv[i], "N=", 2) == 0) { std::sscanf(argv[i], "N=%ld", &N); }

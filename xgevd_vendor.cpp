@@ -4,7 +4,6 @@
 
 template <class T>
 int32_t run(int32_t argc, char* argv[]) {
-  std::string file;
   int64_t gM = 2048, N = 2048, K = 1500, mb = 512;
 
   for (int32_t i = 1; i < argc; ++i) {
@@ -12,7 +11,6 @@ int32_t run(int32_t argc, char* argv[]) {
     else if (std::strncmp(argv[i], "N=", 2) == 0) { std::sscanf(argv[i], "N=%ld", &N); }
     else if (std::strncmp(argv[i], "K=", 2) == 0) { std::sscanf(argv[i], "K=%ld", &K); }
     else if (std::strncmp(argv[i], "mb=", 3) == 0) { std::sscanf(argv[i], "mb=%ld", &mb); }
-    else if (std::strncmp(argv[i], "file=", 5) == 0) { file.resize(std::strlen(argv[i])); std::sscanf(argv[i], "file=%s", file.data()); }
     else if (std::strncmp(argv[i], "data=", 5) == 0) {}
     else { std::cerr << "Ignored parameter: " << argv[i] << std::endl; }
   }
@@ -32,10 +30,7 @@ int32_t run(int32_t argc, char* argv[]) {
   lM += std::max(int64_t(0), std::min(mb, gM - lM * tile_m - mb * grid_row));
 
   std::vector<T> matA(lM * N);
-  if (!file.empty())
-    matrix_from_row_major_csv(gM, N, mb, 512, matA.data(), lM, file, grid_row, 0, tile_m, 1);
-  else
-    matrix_generator<T>(1., gM, N).generate_block(mb, 512, &matA[0], lM, grid_row, 0, tile_m, 1);
+  matrix_generator<T>(1., gM, N).generate_block(mb, 512, &matA[0], lM, grid_row, 0, tile_m, 1);
 
   T* d_A = nullptr, *d_V = nullptr, *d_B = nullptr; double* d_S = nullptr;
   void* evd_work_device = nullptr, *evd_work_host = nullptr;

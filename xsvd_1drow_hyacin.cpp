@@ -11,15 +11,12 @@ template <> inline hyacinPrecision_t hyacin_prec<cuDoubleComplex>() { return HYA
 template <> inline hyacinPrecision_t hyacin_prec<cuComplex>() { return HYACIN_F32_COMPLEX; };
 template <> inline hyacinPrecision_t hyacin_prec<__half2>() { return HYACIN_F16_COMPLEX; };
 
-template <class T, class R> inline void run(char prec, double epi, int64_t gM, int64_t N, int64_t K, int64_t mb, int32_t grid_row, int32_t tile_m, ncclUniqueId id, const std::string& file) {
+template <class T, class R> inline void run(char prec, double epi, int64_t gM, int64_t N, int64_t K, int64_t mb, int32_t grid_row, int32_t tile_m, ncclUniqueId id) {
   int64_t lM = mb * (gM / (mb * tile_m));
   lM += std::max(int64_t(0), std::min(mb, gM - lM * tile_m - mb * grid_row));
 
   std::vector<T> matA(lM * N);
-  if (!file.empty())
-    matrix_from_row_major_csv(gM, N, mb, 512, matA.data(), lM, file, grid_row, 0, tile_m, 1);
-  else
-    matrix_generator<T>(1., gM, N).generate_block(mb, 512, &matA[0], lM, grid_row, 0, tile_m, 1);
+  matrix_generator<T>(1., gM, N).generate_block(mb, 512, &matA[0], lM, grid_row, 0, tile_m, 1);
 
   /* Timed region start */
   auto host_start = std::chrono::high_resolution_clock::now();
@@ -74,7 +71,7 @@ template <class T, class R> inline void run(char prec, double epi, int64_t gM, i
 }
 
 int32_t main(int32_t argc, char* argv[]) try {
-  char prec = 'D', algo = 'A'; std::string file;
+  char prec = 'D', algo = 'A';
   int64_t gM = 2048, N = 2048, K = 2048, mb = 512; int32_t jacobi_sweeps = 5, u_corr = 7, batch = 8192;
   double epi = 1.e-12;
 
@@ -85,7 +82,6 @@ int32_t main(int32_t argc, char* argv[]) try {
     else if (std::strncmp(argv[i], "data=", 5) == 0) { std::sscanf(argv[i], "data=%c", &prec); }
     else if (std::strncmp(argv[i], "epi=", 4) == 0) { std::sscanf(argv[i], "epi=%lf", &epi); }
     else if (std::strncmp(argv[i], "mb=", 3) == 0) { std::sscanf(argv[i], "mb=%ld", &mb); }
-    else if (std::strncmp(argv[i], "file=", 5) == 0) { file.resize(std::strlen(argv[i])); std::sscanf(argv[i], "file=%s", file.data()); }
     else if (std::strncmp(argv[i], "algo=", 5) == 0) { std::sscanf(argv[i], "algo=%c", &algo); }
     else if (std::strncmp(argv[i], "jacobi=", 7) == 0) { std::sscanf(argv[i], "jacobi=%d", &jacobi_sweeps); }
     else if (std::strncmp(argv[i], "u_corr=", 7) == 0) { std::sscanf(argv[i], "u_corr=%d", &u_corr); }
@@ -103,12 +99,12 @@ int32_t main(int32_t argc, char* argv[]) try {
   LIBRARY_CHECK(cudaDeviceReset());
 
   switch(prec) {
-    case 'D': run<double, double>(prec, epi, gM, N, K, mb, world_rank, world_size, id, file); break;
-    case 'S': run<float, float>(prec, epi, gM, N, K, mb, world_rank, world_size, id, file); break;
-    case 'H': run<__half, __half>(prec, epi, gM, N, K, mb, world_rank, world_size, id, file); break;
-    case 'Z': run<cuDoubleComplex, double>(prec, epi, gM, N, K, mb, world_rank, world_size, id, file); break;
-    case 'C': run<cuComplex, float>(prec, epi, gM, N, K, mb, world_rank, world_size, id, file); break;
-    case 'J': run<__half2, __half>(prec, epi, gM, N, K, mb, world_rank, world_size, id, file); break;
+    case 'D': run<double, double>(prec, epi, gM, N, K, mb, world_rank, world_size, id); break;
+    case 'S': run<float, float>(prec, epi, gM, N, K, mb, world_rank, world_size, id); break;
+    case 'H': run<__half, __half>(prec, epi, gM, N, K, mb, world_rank, world_size, id); break;
+    case 'Z': run<cuDoubleComplex, double>(prec, epi, gM, N, K, mb, world_rank, world_size, id); break;
+    case 'C': run<cuComplex, float>(prec, epi, gM, N, K, mb, world_rank, world_size, id); break;
+    case 'J': run<__half2, __half>(prec, epi, gM, N, K, mb, world_rank, world_size, id); break;
     default: break;
   }
 
