@@ -1,15 +1,7 @@
 
-#include <benchmark_flops.hpp>
+#include <hyacin_common.hpp>
 #include <iostream>
 #include <chrono>
-
-template <class T> inline hyacinPrecision_t hyacin_prec();
-template <> inline hyacinPrecision_t hyacin_prec<double>() { return HYACIN_F64; };
-template <> inline hyacinPrecision_t hyacin_prec<float>() { return HYACIN_F32; };
-template <> inline hyacinPrecision_t hyacin_prec<__half>() { return HYACIN_F16; };
-template <> inline hyacinPrecision_t hyacin_prec<cuDoubleComplex>() { return HYACIN_F64_COMPLEX; };
-template <> inline hyacinPrecision_t hyacin_prec<cuComplex>() { return HYACIN_F32_COMPLEX; };
-template <> inline hyacinPrecision_t hyacin_prec<__half2>() { return HYACIN_F16_COMPLEX; };
 
 template <class T, class R> inline void run(char prec, double epi, int64_t gM, int64_t N, int64_t K, int64_t mb, int32_t grid_row, int32_t tile_m, ncclUniqueId id) {
   int64_t lM = mb * (gM / (mb * tile_m));
@@ -44,7 +36,7 @@ template <class T, class R> inline void run(char prec, double epi, int64_t gM, i
 
   double eventMs[3]{ 'D', 'R', 'C' }; hyacinSync_TimerSegments(&handle, eventMs, 3);
   double kernel_time = eventMs[0] + eventMs[1] + eventMs[2], rep_time = eventMs[1], comm_time = eventMs[2];
-  double ret[5]{ kernel_time, rep_time, comm_time, hyacinCheckNorm(&handle, 'N', lM, N, d_A, lM, rank, d_V, N, hyacin_prec<T>()), hyacinCheckNorm(&handle, 'N', lM, N, d_A, lM, 0, nullptr, 0, hyacin_prec<T>()) };
+  double ret[5]{ kernel_time, rep_time, comm_time, hyacin_check_norm_fp64<T>(&handle, 'N', lM, N, d_A, lM, rank, d_V, N), hyacin_check_norm_fp64<T>(&handle, 'N', lM, N, d_A, lM, 0, nullptr, 0) };
   LIBRARY_CHECK(cudaMemcpy(d_barrier, ret, 5 * sizeof(double), cudaMemcpyHostToDevice));
   LIBRARY_CHECK(ncclAllReduce(d_barrier, d_barrier, 5, ncclDouble, ncclSum, comm, handle.cudaStream));
   LIBRARY_CHECK(cudaStreamSynchronize(handle.cudaStream));
@@ -67,13 +59,13 @@ template <class T, class R> inline void run(char prec, double epi, int64_t gM, i
 
   printf("%c-SVD#%d [M=%ld,N=%ld,K=%ld] [epi=%.1le] [err=%.12le] [rank=%d] [host=%lf ms] [kernel=%lf ms] [replicate=%lf ms] [comm=%lf ms] [flops=%.6le] [%lf GFlops]\n",
     prec, grid_row, gM, N, K, epi, err, rank, duration, kernel_time, rep_time, comm_time, flops, (1.e-6 * flops) / kernel_time);
-  //write_matrix_to_csv(rank, 1, &vecS[0], rank, "sv.csv");
 }
 
 int32_t main(int32_t argc, char* argv[]) try {
   char prec = 'D', algo = 'A';
   int64_t gM = 2048, N = 2048, K = 2048, mb = 512; int32_t jacobi_sweeps = 5, u_corr = 7, batch = 8192;
   double epi = 1.e-12;
+  int32_t ranks = 1;
 
   for (int32_t i = 1; i < argc; ++i) {
     if (std::strncmp(argv[i], "M=", 2) == 0) { std::sscanf(argv[i], "M=%ld", &gM); }
@@ -81,6 +73,7 @@ int32_t main(int32_t argc, char* argv[]) try {
     else if (std::strncmp(argv[i], "K=", 2) == 0) { std::sscanf(argv[i], "K=%ld", &K); }
     else if (std::strncmp(argv[i], "data=", 5) == 0) { std::sscanf(argv[i], "data=%c", &prec); }
     else if (std::strncmp(argv[i], "epi=", 4) == 0) { std::sscanf(argv[i], "epi=%lf", &epi); }
+    else if (std::strncmp(argv[i], "ranks=", 6) == 0) { std::sscanf(argv[i], "ranks=%d", &ranks); }
     else if (std::strncmp(argv[i], "mb=", 3) == 0) { std::sscanf(argv[i], "mb=%ld", &mb); }
     else if (std::strncmp(argv[i], "algo=", 5) == 0) { std::sscanf(argv[i], "algo=%c", &algo); }
     else if (std::strncmp(argv[i], "jacobi=", 7) == 0) { std::sscanf(argv[i], "jacobi=%d", &jacobi_sweeps); }
@@ -91,11 +84,11 @@ int32_t main(int32_t argc, char* argv[]) try {
   handle_param_environments(algo, batch, u_corr, jacobi_sweeps);
 
   int32_t world_rank, world_size, local_rank; ncclUniqueId id;
-  //bootstrap_mpi(world_rank, local_rank, world_size, id);
-  bootstrap_posix_fork(world_rank, local_rank, world_size, id);
+  enable_nccl_multi_rank_gpu();
+  bootstrap_posix_fork(world_rank, local_rank, world_size, id, ranks);
 
   int32_t device_count = 0; LIBRARY_CHECK(cudaGetDeviceCount(&device_count));
-  LIBRARY_CHECK(cudaSetDevice(1 < device_count ? local_rank : 0));
+  LIBRARY_CHECK(cudaSetDevice(1 < device_count ? local_rank % device_count : 0));
   LIBRARY_CHECK(cudaDeviceReset());
 
   switch(prec) {

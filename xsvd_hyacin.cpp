@@ -1,15 +1,7 @@
 
-#include <benchmark_flops.hpp>
+#include <hyacin_common.hpp>
 #include <iostream>
 #include <chrono>
-
-template <class T> inline hyacinPrecision_t hyacin_prec();
-template <> inline hyacinPrecision_t hyacin_prec<double>() { return HYACIN_F64; };
-template <> inline hyacinPrecision_t hyacin_prec<float>() { return HYACIN_F32; };
-template <> inline hyacinPrecision_t hyacin_prec<__half>() { return HYACIN_F16; };
-template <> inline hyacinPrecision_t hyacin_prec<cuDoubleComplex>() { return HYACIN_F64_COMPLEX; };
-template <> inline hyacinPrecision_t hyacin_prec<cuComplex>() { return HYACIN_F32_COMPLEX; };
-template <> inline hyacinPrecision_t hyacin_prec<__half2>() { return HYACIN_F16_COMPLEX; };
 
 template <class T, class R> inline void run(char prec, double epi, int64_t M, int64_t N, int64_t K) {
   std::vector<T> matA(M * N);
@@ -33,8 +25,8 @@ template <class T, class R> inline void run(char prec, double epi, int64_t M, in
     rank = hyacinTsvdFitSegmentN(&handle, epi, 'N', M, N, K, d_A, M, d_S, d_V, N, M, hyacin_prec<T>());
 
   double eventMs[2]{ 'D', 'R' }; hyacinSync_TimerSegments(&handle, eventMs, 2);
-  double nrm = hyacinCheckNorm(&handle, 'N', M, N, d_A, M, 0, nullptr, 0, hyacin_prec<T>());
-  double err = nrm == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(hyacinCheckNorm(&handle, 'N', M, N, d_A, M, rank, d_V, N, hyacin_prec<T>()) / nrm);
+  double nrm = hyacin_check_norm_fp64<T>(&handle, 'N', M, N, d_A, M, 0, nullptr, 0);
+  double err = nrm == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(hyacin_check_norm_fp64<T>(&handle, 'N', M, N, d_A, M, rank, d_V, N) / nrm);
   double kernel_time = eventMs[0] + eventMs[1];
   hyacinDestroy(&handle);
   std::vector<R> vecS(K);

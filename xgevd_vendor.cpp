@@ -5,11 +5,13 @@
 template <class T>
 int32_t run(int32_t argc, char* argv[]) {
   int64_t gM = 2048, N = 2048, K = 1500, mb = 512;
+  int32_t ranks = 1;
 
   for (int32_t i = 1; i < argc; ++i) {
     if (std::strncmp(argv[i], "M=", 2) == 0) { std::sscanf(argv[i], "M=%ld", &gM); }
     else if (std::strncmp(argv[i], "N=", 2) == 0) { std::sscanf(argv[i], "N=%ld", &N); }
     else if (std::strncmp(argv[i], "K=", 2) == 0) { std::sscanf(argv[i], "K=%ld", &K); }
+    else if (std::strncmp(argv[i], "ranks=", 6) == 0) { std::sscanf(argv[i], "ranks=%d", &ranks); }
     else if (std::strncmp(argv[i], "mb=", 3) == 0) { std::sscanf(argv[i], "mb=%ld", &mb); }
     else if (std::strncmp(argv[i], "data=", 5) == 0) {}
     else { std::cerr << "Ignored parameter: " << argv[i] << std::endl; }
@@ -18,11 +20,11 @@ int32_t run(int32_t argc, char* argv[]) {
   N = std::min(gM, N); K = std::min(N, K);
 
   int32_t world_rank, world_size, local_rank; ncclUniqueId id;
-  //bootstrap_mpi(world_rank, local_rank, world_size, id);
-  bootstrap_posix_fork(world_rank, local_rank, world_size, id);
+  enable_nccl_multi_rank_gpu();
+  bootstrap_posix_fork(world_rank, local_rank, world_size, id, ranks);
 
   int32_t device_count = 0; LIBRARY_CHECK(cudaGetDeviceCount(&device_count));
-  LIBRARY_CHECK(cudaSetDevice(1 < device_count ? local_rank : 0));
+  LIBRARY_CHECK(cudaSetDevice(1 < device_count ? local_rank % device_count : 0));
   LIBRARY_CHECK(cudaDeviceReset());
 
   int32_t grid_row = world_rank, tile_m = world_size;
@@ -114,7 +116,7 @@ int32_t run(int32_t argc, char* argv[]) {
   kernel_time /= double(kernel_runs); comm_time /= double(kernel_runs);
   duration /= double(kernel_runs);
 
-  double ret[4]{ kernel_time, comm_time, check_answer_svd(lM, N, K, &matU[0], lM, &matV[0], N, &matA[0], lM), fnorm(lM, N, &matA[0], lM) };
+  double ret[4]{ kernel_time, comm_time, vendor_check_answer_svd(lM, N, K, &matU[0], lM, &matV[0], N, &matA[0], lM), vendor_fnorm(lM, N, &matA[0], lM) };
   LIBRARY_CHECK(cudaMemcpy(d_barrier, ret, 4 * sizeof(double), cudaMemcpyHostToDevice));
   LIBRARY_CHECK(ncclAllReduce(d_barrier, d_barrier, 4, ncclDouble, ncclSum, comm, stream));
   LIBRARY_CHECK(cudaStreamSynchronize(stream));

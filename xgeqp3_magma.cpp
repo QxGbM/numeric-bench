@@ -48,14 +48,14 @@ inline void vendor_laset(magma_uplo_t uplo, int m, int n, std::complex<double> z
 template <class T>
 double check_answer_lra(int32_t rank, int32_t M, int32_t N, const T* A, int32_t lda, const int32_t* jpiv, const T* R, int32_t ldr) {
   if (rank <= 0 || M <= 0 || N <= 0) { return 0.; }
-  constexpr int32_t Complex = std::is_same_v<T, std::complex<double>> || std::is_same_v<T, std::complex<float>> || std::is_same_v<T, __half2>;
+  constexpr bool Complex = std::is_same_v<T, std::complex<double>>;
   using type = typename std::conditional<Complex, std::complex<double>, double>::type;
   std::vector<type> matB(int64_t(M) * int64_t(N)), matC(int64_t(M) * int64_t(rank)), matR(int64_t(rank) * int64_t(N));
   for (int32_t i = 0; i < rank; ++i)
-    copy2d(M, 1, &A[int64_t(jpiv[i] - 1) * int64_t(lda)], lda, &matC[int64_t(i) * int64_t(M)], M);
+    vendor_copy2d(M, 1, &A[int64_t(jpiv[i] - 1) * int64_t(lda)], lda, &matC[int64_t(i) * int64_t(M)], M);
   for (int32_t i = 0; i < N; ++i)
-    copy2d(1, rank, &R[int64_t(i) * int64_t(ldr)], 1, &matR[jpiv[i] - 1], N);
-  copy2d(M, N, A, lda, &matB[0], M);
+    vendor_copy2d(1, rank, &R[int64_t(i) * int64_t(ldr)], 1, &matR[jpiv[i] - 1], N);
+  vendor_copy2d(M, N, A, lda, &matB[0], M);
   if constexpr(Complex) { for (std::complex<double>& f : matR) { f = std::conj(f); }}
   ncgemm(M, N, rank, &matC[0], M, &matR[0], N, &matB[0], M);
   double err = std::transform_reduce(matB.begin(), matB.end(), 0., std::plus<double>(), [](auto i) { return std::norm(i); });
@@ -115,7 +115,7 @@ int32_t run(int32_t argc, char* argv[]) {
   LIBRARY_CHECK(cudaStreamSynchronize(stream));
 
   LIBRARY_CHECK(cudaMemcpy(&matB[0], dA, M * N * sizeof(T), cudaMemcpyDeviceToHost));
-  double nrm = fnorm(M, N, &matA[0], M);
+  double nrm = vendor_fnorm(M, N, &matA[0], M);
   double err = nrm == 0. ? std::numeric_limits<double>::quiet_NaN() : std::sqrt(check_answer_lra(rank, M, N, matA.data(), M, jpvt.data(), matB.data(), M) / nrm);
 
   LIBRARY_CHECK(cudaMemcpy(dA, &matA[0], M * N * sizeof(T), cudaMemcpyHostToDevice));

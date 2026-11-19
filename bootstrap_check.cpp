@@ -1,13 +1,18 @@
 
-#include <common.hpp>
+#include <benchmark_common.hpp>
 
-int32_t main(int32_t, char* []) try {
+int32_t main(int32_t argc, char* argv[]) try {
+  int32_t ranks = 1;
+  for (int32_t i = 1; i < argc; ++i) {
+    if (std::strncmp(argv[i], "ranks=", 6) == 0) { std::sscanf(argv[i], "ranks=%d", &ranks); }
+    else { fprintf(stderr, "Ignored parameter: %s\n", argv[i]); }
+  }
   int32_t world_rank, world_size, local_rank; ncclUniqueId id;
-  //bootstrap_mpi(world_rank, local_rank, world_size, id);
-  bootstrap_posix_fork(world_rank, local_rank, world_size, id);
+  enable_nccl_multi_rank_gpu();
+  bootstrap_posix_fork(world_rank, local_rank, world_size, id, ranks);
 
   int32_t device_count = 0; LIBRARY_CHECK(cudaGetDeviceCount(&device_count));
-  int32_t device_picked = 1 < device_count ? local_rank : 0;
+  int32_t device_picked = 1 < device_count ? local_rank % device_count : 0;
   LIBRARY_CHECK(cudaSetDevice(device_picked));
   
   char pciBusId[20];

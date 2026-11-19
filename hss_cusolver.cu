@@ -16,6 +16,7 @@
 #include <utility>
 #include <cassert>
 #include <iostream>
+#include <string>
 
 #include <cublas_v2.h>
 #include <cuda_runtime_api.h>
@@ -31,17 +32,17 @@
 #include <thrust/scan.h>
 #include <thrust/system/cuda/execution_policy.h>
 
-#ifndef NDEBUG
-#define CUDA_CHECK(call) do { const cudaError_t err = (call); assert(err == cudaSuccess); } while (0)
-#define CUBLAS_CHECK(call) do { const cublasStatus_t err = (call); assert(err == CUBLAS_STATUS_SUCCESS); } while (0)
-#define CUSOLVER_CHECK(call) do { const cusolverStatus_t err = (call); assert(err == CUSOLVER_STATUS_SUCCESS); } while (0)
-#define NCCL_CHECK(call) do { ncclResult_t err = (call); assert(err == ncclSuccess); } while(0)
-#else
-#define CUDA_CHECK(call) (call)
-#define CUBLAS_CHECK(call) (call)
-#define CUSOLVER_CHECK(call) (call)
-#define NCCL_CHECK(call) (call)
-#endif
+// Status checks must remain active in Release builds as well.
+template <class Status>
+static inline void checkHssStatus(Status status, Status success, const char* call, const char* file, int line) {
+  if (status != success)
+    throw std::runtime_error(std::string(file) + ":" + std::to_string(line) + ": " + call +
+                             " returned status=" + std::to_string(static_cast<int>(status)));
+}
+#define CUDA_CHECK(call) checkHssStatus((call), cudaSuccess, #call, __FILE__, __LINE__)
+#define CUBLAS_CHECK(call) checkHssStatus((call), CUBLAS_STATUS_SUCCESS, #call, __FILE__, __LINE__)
+#define CUSOLVER_CHECK(call) checkHssStatus((call), CUSOLVER_STATUS_SUCCESS, #call, __FILE__, __LINE__)
+#define NCCL_CHECK(call) checkHssStatus((call), ncclSuccess, #call, __FILE__, __LINE__)
 
 class DenseMatrix {
 private:
@@ -54,12 +55,13 @@ private:
 public:
   thrust::device_vector<long long> rowOffsets;
   long long N; int prime_rank;
+  double eps; // Public, caller-adjustable construction tolerance; zero retains all singular values.
   // The caller owns the stream and both handles, and binds the handles to the stream.
   DenseMatrix(long long localM, long long N, ncclComm_t ncclPrime, ncclComm_t ncclSub,
               cublasHandle_t blas, cusolverDnHandle_t solver, cudaStream_t stream);
   void matVecA(const DenseMatrix& matA, std::complex<double>* B, ncclComm_t ncclPrime, ncclComm_t ncclSub) const;
   void adjointA(long long localN, ncclComm_t ncclPrime, ncclComm_t ncclSub);
-  void compress(double epi, std::vector<long long>& recipe, std::vector<std::complex<double>>& basis,
+  void compress(std::vector<long long>& recipe, std::vector<std::complex<double>>& basis,
                 ncclComm_t ncclPrime, ncclComm_t ncclSub);
   // Each new replica group contains complete old groups, including their representatives.
   void redistribute(long long localM, ncclComm_t ncclPrimeOld, ncclComm_t ncclPrimeNew, ncclComm_t ncclSubNew);
@@ -122,7 +124,7 @@ public:
   std::vector<std::complex<double>> A;
   std::vector<std::complex<double>> C;
   
-  void eval(double epi, DenseMatrix& matA, const long long localM[], const long long localN[],
+  void eval(DenseMatrix& matA, const long long localM[], const long long localN[],
             const CSR& rels, const HierarchicalComm& comm, MPI_Comm prime, MPI_Comm sub,
             ncclComm_t ncclPrime, ncclComm_t ncclSub, long long localNoffset = -1ll);
   void matVecUpwardPass(const std::complex<double>* X_in, std::complex<double>* Z,
@@ -149,7 +151,7 @@ public:
   MPI_Comm sub(long long level) const { return mpi_communicators[2 * level + 1]; }
   ncclComm_t ncclPrime(long long level) const { return nccl_communicators[2 * level]; }
   ncclComm_t ncclSub(long long level) const { return nccl_communicators[2 * level + 1]; }
-  void evalMatVecA(DenseMatrix& matA, double epi, const Cell cells[]);
+  void evalMatVecA(DenseMatrix& matA, const Cell cells[]);
   void allocRHSwork(std::vector<long long>& iwork, std::vector<std::complex<double>>& cwork) const;
 
   void matVecMul(std::complex<double> X[]) const;
@@ -285,11 +287,10 @@ static inline int compressBlock(cusolverDnHandle_t solver, cublasHandle_t blas, 
   auto* singularValues = deviceData(scratch.singularValues);
   CUSOLVER_CHECK(cusolverDnZgesvd(solver, 'O', 'S', m, n, input, m, singularValues, nullptr, 1,
                                 vh, n, deviceData(scratch.work), lwork, nullptr, deviceData(scratch.info)));
-#ifndef NDEBUG
   int info;
   copyToHost(&info, deviceData(scratch.info), sizeof(info), stream);
-  assert(info == 0);
-#endif
+  if (info != 0)
+    throw std::runtime_error("cusolverDnZgesvd returned info=" + std::to_string(info));
 
   auto& values = scratch.singularValuesHost;
   auto& tails = scratch.tails;
@@ -326,7 +327,7 @@ static inline int compressBlock(cusolverDnHandle_t solver, cublasHandle_t blas, 
 
 DenseMatrix::DenseMatrix(long long localM, long long N, ncclComm_t ncclPrime, ncclComm_t ncclSub,
                          cublasHandle_t blas, cusolverDnHandle_t solver, cudaStream_t stream)
-  : blas(blas), solver(solver), stream(stream), N(N) {
+  : blas(blas), solver(solver), stream(stream), N(N), eps(0.) {
   rowOffsets = gatherRowOffsets(localM, ncclPrime, ncclSub, prime_rank, stream);
   A.resize((rowOffsets[prime_rank + 1] - rowOffsets[prime_rank]) * N);
 }
@@ -438,8 +439,10 @@ void DenseMatrix::adjointA(long long localN, ncclComm_t ncclPrime, ncclComm_t nc
   }
 }
 
-void DenseMatrix::compress(double epi, std::vector<long long>& recipe, std::vector<std::complex<double>>& basis,
+void DenseMatrix::compress(std::vector<long long>& recipe, std::vector<std::complex<double>>& basis,
                            ncclComm_t ncclPrime, ncclComm_t ncclSub) {
+  if (!std::isfinite(eps) || eps < 0.)
+    throw std::invalid_argument("DenseMatrix::eps must be finite and nonnegative");
   basis.clear();
   if (N == 0) return;
   assert(std::reduce(recipe.begin(), recipe.end()) == rowOffsets[prime_rank + 1] - rowOffsets[prime_rank]);
@@ -455,7 +458,7 @@ void DenseMatrix::compress(double epi, std::vector<long long>& recipe, std::vect
       for (long long& blockRows : recipe) {
         if (blockRows == 0) continue;
         auto* src = matrix + inputRow * N;
-        const int rank = compressBlock(solver, blas, epi, storedRows, checkedInt(blockRows), src, scratch, deviceBasis, stream);
+        const int rank = compressBlock(solver, blas, eps, storedRows, checkedInt(blockRows), src, scratch, deviceBasis, stream);
         if (rank > 0 && outputRow < inputRow) {
           const long long count = rank * N;
           if (outputRow + rank > inputRow) {
@@ -668,7 +671,7 @@ void HierarchicalComm::bcastNeighbor(void* data, const long long noffsets[], siz
     MPI_Bcast(data, noffsets[Boxes.back()[2]] * size, MPI_BYTE, 0, sub);
 }
 
-void HSSLevel::eval(double epi, DenseMatrix& matA, const long long localM[], const long long localN[],
+void HSSLevel::eval(DenseMatrix& matA, const long long localM[], const long long localN[],
                     const CSR& rels, const HierarchicalComm& comm, MPI_Comm prime, MPI_Comm sub,
                     ncclComm_t ncclPrime, ncclComm_t ncclSub, long long localNoffset) {
   long long ibegin = comm.oLocal(), nodes = comm.lenLocal(), xlen = comm.lenNeighbors();
@@ -694,9 +697,9 @@ void HSSLevel::eval(double epi, DenseMatrix& matA, const long long localM[], con
   if (rels.RowIndex[nodes]) {
     URowPrefixes[0] = UColPrefixes[0] = VRowPrefixes[0] = VColPrefixes[0] = UPrefixes[0] = VPrefixes[0] = CPrefixes[0] = 0ll;
     std::vector<long long> DimsMLr(&localM[0], &localM[nodes]), DimsNLr(&localN[0], &localN[nodes]);
-    matA.compress(epi, DimsMLr, U, ncclPrime, ncclSub);
+    matA.compress(DimsMLr, U, ncclPrime, ncclSub);
     matA.adjointA(std::reduce(DimsNLr.begin(), DimsNLr.end()), ncclPrime, ncclSub);
-    matA.compress(epi, DimsNLr, V, ncclPrime, ncclSub);
+    matA.compress(DimsNLr, V, ncclPrime, ncclSub);
     long long colOffset = matA.rowOffsets[matA.prime_rank];
     matA.adjointA(std::reduce(DimsMLr.begin(), DimsMLr.end()), ncclPrime, ncclSub);
 
@@ -858,11 +861,11 @@ HSS::HSS(const std::vector<Cell>& cells, long long levels, MPI_Comm world, ncclC
   local_bodies = std::make_pair(cells[gbegin].N[0], cells[gbegin + llen - 1].N[1]);
 }
 
-void HSS::evalMatVecA(DenseMatrix& matA, double epi, const Cell cells[]) {
+void HSS::evalMatVecA(DenseMatrix& matA, const Cell cells[]) {
   long long llen = comm[levels].lenLocal(), gbegin = comm[levels].oGlobal();
   std::vector<long long> localM, localN(llen);
   std::transform(&cells[gbegin], &cells[gbegin + llen], localN.begin(), [](const Cell& c) { return c.N[1] - c.N[0]; });
-  A[levels].eval(epi, matA, &localN[0], &localN[0], Far_local[levels], comm[levels],
+  A[levels].eval(matA, &localN[0], &localN[0], Far_local[levels], comm[levels],
                  prime(levels), sub(levels), ncclPrime(levels), ncclSub(levels), cells[gbegin].N[0]);
 
   for (long long l = levels - 1ll; l >= 0ll; --l) {
@@ -873,7 +876,7 @@ void HSS::evalMatVecA(DenseMatrix& matA, double epi, const Cell cells[]) {
       localM[i] = A[l + 1].UColPrefixes[cend] - A[l + 1].UColPrefixes[cbegin];
       localN[i] = A[l + 1].VColPrefixes[cend] - A[l + 1].VColPrefixes[cbegin];
     }
-    A[l].eval(epi, matA, &localM[0], &localN[0], Far_local[l], comm[l], prime(l), sub(l), ncclPrime(l), ncclSub(l));
+    A[l].eval(matA, &localM[0], &localN[0], Far_local[l], comm[l], prime(l), sub(l), ncclPrime(l), ncclSub(l));
   }
 }
 
@@ -1071,6 +1074,9 @@ static void runBenchmark(int argc, char* argv[]) {
   long long leaf_size = argc > 2 ? std::atoll(argv[2]) : 512;
   double epi = argc > 3 ? std::atof(argv[3]) : 1e-10;
 
+  if (Nbody <= 0 || leaf_size <= 0 || !std::isfinite(epi) || epi < 0.)
+    throw std::invalid_argument("Require positive matrix/leaf sizes and finite nonnegative tolerance");
+
   leaf_size = Nbody < leaf_size ? Nbody : leaf_size;
   long long levels = (long long)std::log2((double)Nbody / leaf_size);
   long long Nleaf = (long long)1 << levels;
@@ -1151,7 +1157,8 @@ static void runBenchmark(int argc, char* argv[]) {
 
   MPI_Barrier(world);
   double h2_construct_time = MPI_Wtime();
-  matA.evalMatVecA(denseA, epi, cell.data());
+  denseA.eps = epi;
+  matA.evalMatVecA(denseA, cell.data());
 
   MPI_Barrier(world);
   h2_construct_time = MPI_Wtime() - h2_construct_time;

@@ -27,10 +27,12 @@ void check_residual() {
   }();
   const std::vector<T> V{phase, T(0.), T(0.), T(1.)};
   for (int i = 0; i < 3; ++i) U[i] *= phase;
-  require(check_answer_svd(3, 2, 2, U.data(), 3, V.data(), 2, A.data(), 3) == 0.,
+  require(vendor_check_answer_svd(3, 2, 2, U.data(), 3, V.data(), 2, A.data(), 3) == 0.,
     "Exact projection must have zero residual");
+  require(vendor_check_answer_svd(3, 2, 0, U.data(), 3, V.data(), 2, A.data(), 3) == 91.,
+    "Zero-rank residual must retain the input norm");
   U[0] += T(2.);
-  require(std::abs(check_answer_svd(3, 2, 2, U.data(), 3, V.data(), 2, A.data(), 3) - 4.) < 1.e-12,
+  require(std::abs(vendor_check_answer_svd(3, 2, 2, U.data(), 3, V.data(), 2, A.data(), 3) - 4.) < 1.e-12,
     "Residual must detect an incorrect projection");
 }
 
@@ -43,10 +45,11 @@ int main() try {
   expect_failure(cudaErrorInvalidValue);
   expect_failure(CUBLAS_STATUS_INVALID_VALUE);
   expect_failure(CUSOLVER_STATUS_INVALID_VALUE);
-#ifndef NO_NCCL
+  setenv("NCCL_MULTI_RANK_GPU_ENABLE", "0", 1);
+  enable_nccl_multi_rank_gpu();
+  require(std::string(std::getenv("NCCL_MULTI_RANK_GPU_ENABLE")) == "1", "Multi-rank helper must enable NCCL GPU oversubscription");
   LIBRARY_CHECK(ncclSuccess);
   expect_failure(ncclInvalidArgument);
-#endif
   // At fixed N, doubling M must double only the rectangular work.
   const double base = gesvd_flops(100., 10., 1.);
   const double taller = gesvd_flops(200., 10., 1.);

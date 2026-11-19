@@ -1,15 +1,7 @@
 
-#include <common.hpp>
+#include <hyacin_common.hpp>
 #include <iostream>
 #include <chrono>
-
-template <class T> inline hyacinPrecision_t hyacin_prec();
-template <> inline hyacinPrecision_t hyacin_prec<double>() { return HYACIN_F64; };
-template <> inline hyacinPrecision_t hyacin_prec<float>() { return HYACIN_F32; };
-template <> inline hyacinPrecision_t hyacin_prec<__half>() { return HYACIN_F16; };
-template <> inline hyacinPrecision_t hyacin_prec<std::complex<double>>() { return HYACIN_F64_COMPLEX; };
-template <> inline hyacinPrecision_t hyacin_prec<std::complex<float>>() { return HYACIN_F32_COMPLEX; };
-template <> inline hyacinPrecision_t hyacin_prec<__half2>() { return HYACIN_F16_COMPLEX; };
 
 template <class T>
 void syrk_hyac(const hyacinHandle_t* handle, double epi, int32_t M, int32_t N, const T* A, int32_t lda, T* R, int32_t ldr) {
