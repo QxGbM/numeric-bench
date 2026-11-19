@@ -5,6 +5,8 @@ This library contains some examples for using Hyacin for computing low-rank appr
 # Authors
 Qianxiang Ma, RIKEN R-CCS. ma@rio.scrc.iir.isct.ac.jp / qianxiang.ma@riken.jp
 
+Codex, OpenAI — The BEST AI coding assistant.
+
 # Vendor benchmarks
 
 The vendor executables support `data=D` for real FP64 (the default) and `data=Z`
@@ -174,3 +176,30 @@ cmake -S . -B build -DENABLE_HSS_GPU_TESTS=ON
 cmake --build build --target hss_rsvd_checks.app -j
 ctest --test-dir build -R hss_rsvd_gpu_checks --output-on-failure
 ```
+# Tolerance-based HSS with Hyacin
+
+`hss_hyacin.app` uses the same HSS construction and matvec code in
+`hss_common.hpp`, with a local `DenseMatrixCustom` compression override in
+`hss_hyacin.cu`.
+
+```
+CUDA_VISIBLE_DEVICES=0,1 mpiexec -n 2 ./build/hss_hyacin.app 2048 512 1e-10
+```
+
+Positional arguments are matrix order, leaf size, and tolerance, with defaults
+`2048 512 1e-10`. Compression uses the base class's public `eps` and retains the
+base no-op tolerance-iteration hook. Hyacin fits the right basis directly for
+both tall and wide blocks, caps the rank at `min(M,N)`, and writes its internally
+truncated rank into the recipe. The input and basis use separate allocations,
+so the preserved input supplies the compact left factor through `A*V` in complex
+FP64 math.
+
+The matrix owns one Hyacin handle, initialized with the HSS stream, cuBLAS, and
+cuSOLVER handles before `hyacinCreate`. This requires Hyacin's null-checking
+resource initialization; ownership is managed entirely by Hyacin. HSS retains
+its existing NCCL communication, while each Hyacin fit processes a local block.
+
+With `ENABLE_HSS_GPU_TESTS=ON`, build `hss_hyacin_checks.app` and run
+`ctest --test-dir build -R hss_hyacin_gpu_checks --output-on-failure` to check
+tall/wide inputs, internal truncation, `A*V`, overlapping block compaction, and
+borrowed-resource lifetime.

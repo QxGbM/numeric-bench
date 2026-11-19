@@ -18,7 +18,7 @@ find_package(MPI REQUIRED COMPONENTS CXX)
 pkg_check_modules(MAGMA REQUIRED magma)
 
 set(cpp_sources syrk_bench.cpp xgeqp3_magma.cpp xgesvd_cusolver.cpp xgesvdr_cusolver.cpp xlra_hyacin.cpp xsvd_hyacin.cpp xgevd_vendor.cpp xsvd_1drow_hyacin.cpp bootstrap_check.cpp)
-set(cu_sources hss_cusolver.cu hss_rsvd.cu)
+set(cu_sources hss_cusolver.cu hss_rsvd.cu hss_hyacin.cu)
 
 include(CTest)
 if(BUILD_TESTING)
@@ -30,9 +30,10 @@ endif()
 
 option(ENABLE_HSS_GPU_TESTS "Build and register HSS tests that require a CUDA device" OFF)
 if(BUILD_TESTING AND ENABLE_HSS_GPU_TESTS)
-  list(APPEND cu_sources tests/hss_rsvd_checks.cu)
+  list(APPEND cu_sources tests/hss_rsvd_checks.cu tests/hss_hyacin_checks.cu)
   add_test(NAME hss_rsvd_gpu_checks COMMAND hss_rsvd_checks.app)
-  set_tests_properties(hss_rsvd_gpu_checks PROPERTIES ENVIRONMENT "OPENBLAS_NUM_THREADS=1" TIMEOUT 120)
+  add_test(NAME hss_hyacin_gpu_checks COMMAND hss_hyacin_checks.app)
+  set_tests_properties(hss_rsvd_gpu_checks hss_hyacin_gpu_checks PROPERTIES ENVIRONMENT "OPENBLAS_NUM_THREADS=1" TIMEOUT 120)
 endif()
 
 set_source_files_properties(${cpp_sources} PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra;-Werror;-Wfatal-errors;-fexceptions")
