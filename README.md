@@ -135,3 +135,42 @@ CUDA_VISIBLE_DEVICES=0,1 ./build/xgevd_vendor.app data=Z ranks=4
 ```
 
 HSS does not call this environment helper and retains its existing launch behavior.
+
+# Fixed-rank HSS with RSVD
+
+`hss_rsvd.app` shares all HSS construction, redistribution, communication, and
+matvec code with `hss_cusolver.app` through `hss_common.hpp`. These headers are
+independent of the dense benchmark headers. `DenseMatrixCustom`, defined in
+`hss_rsvd.cu`, is local to that executable and derives from `DenseMatrix`; virtual compression and tolerance hooks
+select its RSVD behavior when HSS holds a `DenseMatrix&`.
+
+```
+CUDA_VISIBLE_DEVICES=0,1 mpiexec -n 2 ./build/hss_rsvd.app 2048 512 200 0 0 1.15
+```
+
+Positional arguments are matrix order, leaf size, leaf rank, oversampling, power
+iterations, and alpha. The defaults are `2048 512 200 0 0 1.15`.
+`DenseMatrixCustom` publicly exposes `K`, `oversampling`, `power_iters`, and
+`alpha`. At each existing level-transition hook, `K` becomes
+`floor(double(K) * alpha)`. `eps` remains on the base class and is ignored by RSVD.
+The GESVD executable retains its original `Nbody leaf_size eps` arguments and
+its no-op tolerance-iteration hook.
+
+RSVD calls `cusolverDnXgesvdr` with `jobu=N`, `jobvt=S` on the original block
+shape, including wide blocks. It preserves the input and computes the compact
+left factor as `A*V` with complex FP64 GEMM. Singular values are neither used to
+scale the compact factor nor read for tail truncation; every compressed block
+writes exactly `K` into its recipe. Invalid rank/oversampling combinations are
+rejected rather than silently reducing `K`: cuSOLVER requires
+[`K + oversampling < min(block rows, block cols)`](https://docs.nvidia.com/cuda/archive/13.3.1/cusolver/).
+The same constraint must hold as ranks grow across levels.
+
+GPU regression tests for tall/wide blocks, fixed rank on rank-deficient inputs,
+`A*V`, overlapping compaction, ignored `eps`, and virtual rank iteration can be
+built and run explicitly on a CUDA-capable host:
+
+```
+cmake -S . -B build -DENABLE_HSS_GPU_TESTS=ON
+cmake --build build --target hss_rsvd_checks.app -j
+ctest --test-dir build -R hss_rsvd_gpu_checks --output-on-failure
+```
