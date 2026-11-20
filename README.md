@@ -39,7 +39,7 @@ CUDA runtime, cuBLAS, cuSOLVER, and NCCL failures report the failing call and so
 location and cause a nonzero exit. Solver `info` values and MAGMA statuses are
 also checked, including each timed run.
 
-Build and run the host-side regression checks (no GPU required):
+Build and run all regression checks (CUDA libraries and a working GPU are required):
 
 ```
 cmake --build build -j
@@ -47,8 +47,13 @@ ctest --test-dir build --output-on-failure
 ```
 
 The checks cover real/complex dispatch, residual calculations, GESVD work scaling,
-and library failure reporting. GPU numerical and timing validation still requires
-a working CUDA device and driver.
+library failure reporting, and GPU compression. All dependencies are required;
+the build always includes the host and GPU test targets.
+
+Hyacin's GPU projection and norm checks run with CTest, or directly through
+`./build/hyacin_checks.app --gpu`.
+These cover all supported storage types, FP64 promotion, padded matrices,
+adjoint inputs, and projection onto nonorthogonal bases.
 
 # Hyacin benchmarks
 
@@ -115,7 +120,7 @@ bootstrap and use `CUDA_VISIBLE_DEVICES`; HSS always uses MPI.
 status checks, timing settings, FP64 reference BLAS operations, and flop estimates.
 It does not include Hyacin. `hyacin_common.hpp` includes that shared header and
 adds the Hyacin precision mappings, real/complex FP16/FP32/FP64 conversions, and
-FP64 residual helpers. The library residual checks also promote the stored inputs
+the typed wrapper for `hyacinCheckNorm`. The library residual checks promote the stored inputs
 to FP64 before computing QR, products, and norms. `vendor_common.hpp` includes the
 shared header directly and provides the simpler real/complex FP64 vendor wrappers
 and reference checks. Each benchmark includes its backend header; HSS remains
@@ -137,6 +142,21 @@ CUDA_VISIBLE_DEVICES=0,1 ./build/xgevd_vendor.app data=Z ranks=4
 ```
 
 HSS does not call this environment helper and retains its existing launch behavior.
+
+# Profiling POSIX ranks with Nsight Systems
+
+For benchmarks using `bootstrap_posix_fork`, enable tracing of forked children
+before `exec`:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 nsys profile --trace-fork-before-exec=true ./build/bootstrap_check.app ranks=2
+```
+
+Without this option, a forked rank can abort under the profiler and leave the
+other ranks waiting inside NCCL initialization. This command was verified with
+Nsight Systems 2026.4.1. NVIDIA still documents limitations for
+[profiling fork without exec](https://docs.nvidia.com/nsight-systems/UserGuide/index.html);
+the MPI bootstrap is the more reliable profiling path.
 
 # Fixed-rank HSS with RSVD
 
@@ -169,10 +189,10 @@ The same constraint must hold as ranks grow across levels.
 
 GPU regression tests for tall/wide blocks, fixed rank on rank-deficient inputs,
 `A*V`, overlapping compaction, ignored `eps`, and virtual rank iteration can be
-built and run explicitly on a CUDA-capable host:
+built and run with the standard configuration:
 
 ```
-cmake -S . -B build -DENABLE_HSS_GPU_TESTS=ON
+cmake -S . -B build
 cmake --build build --target hss_rsvd_checks.app -j
 ctest --test-dir build -R hss_rsvd_gpu_checks --output-on-failure
 ```
@@ -199,7 +219,7 @@ cuSOLVER handles before `hyacinCreate`. This requires Hyacin's null-checking
 resource initialization; ownership is managed entirely by Hyacin. HSS retains
 its existing NCCL communication, while each Hyacin fit processes a local block.
 
-With `ENABLE_HSS_GPU_TESTS=ON`, build `hss_hyacin_checks.app` and run
+Build `hss_hyacin_checks.app` and run
 `ctest --test-dir build -R hss_hyacin_gpu_checks --output-on-failure` to check
 tall/wide inputs, internal truncation, `A*V`, overlapping block compaction, and
 borrowed-resource lifetime.
