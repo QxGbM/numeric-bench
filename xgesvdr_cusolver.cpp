@@ -54,6 +54,11 @@ int32_t run(int32_t argc, char* argv[]) {
   size_t workspaceInBytesOnDevice, workspaceInBytesOnHost;
   LIBRARY_CHECK(cusolverDnXgesvdr_bufferSize(cusolverH, params, 'N', 'S', M, N, K, oversampling, power_iter,
     vendor_type<T>, dA, M, CUDA_R_64F, dS, vendor_type<T>, nullptr, M, vendor_type<T>, dV, N, vendor_type<T>, &workspaceInBytesOnDevice, &workspaceInBytesOnHost));
+  size_t reconstructionWorkspaceOnDevice, reconstructionWorkspaceOnHost;
+  LIBRARY_CHECK(cusolverDnXgesvdr_bufferSize(cusolverH, params, 'S', 'S', M, N, K, oversampling, power_iter,
+    vendor_type<T>, dA, M, CUDA_R_64F, dS, vendor_type<T>, dU, M, vendor_type<T>, dV, N, vendor_type<T>, &reconstructionWorkspaceOnDevice, &reconstructionWorkspaceOnHost));
+  workspaceInBytesOnDevice = std::max(workspaceInBytesOnDevice, reconstructionWorkspaceOnDevice);
+  workspaceInBytesOnHost = std::max(workspaceInBytesOnHost, reconstructionWorkspaceOnHost);
 
   void* hWork = std::malloc(workspaceInBytesOnHost), *dWork;
   if (workspaceInBytesOnHost && !hWork) throw std::bad_alloc();
@@ -85,10 +90,42 @@ int32_t run(int32_t argc, char* argv[]) {
     kernel_time += milliseconds;
   }
   kernel_time /= double(kernel_runs);
+
+  // Independently validate the returned U, S, and V. This extra decomposition
+  // and its reconstruction are outside the jobu=N benchmark timing.
+  LIBRARY_CHECK(cudaMemcpyAsync(dA, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice, stream));
+  LIBRARY_CHECK(cusolverDnXgesvdr(cusolverH, params, 'S', 'S', M, N, K, oversampling, power_iter,
+    vendor_type<T>, dA, M, CUDA_R_64F, dS, vendor_type<T>, dU, M, vendor_type<T>, dV, N, vendor_type<T>, dWork, workspaceInBytesOnDevice, hWork, workspaceInBytesOnHost, info));
+  check_solver_info(info, stream, "GESVDR (jobu=S, jobv=S)");
+
+  T* dB = nullptr;
+  LIBRARY_CHECK(cudaMalloc((void**)(&dB), M * K * sizeof(T)));
+  if constexpr (std::is_same_v<T, double>) {
+    LIBRARY_CHECK(cublasDdgmm(cublasH, CUBLAS_SIDE_RIGHT, M, K, dU, M, dS, 1, dB, M));
+  } else {
+    // ZDGMM takes a complex diagonal; copy real singular values into its real
+    // components and leave every imaginary component zero.
+    T* dSigma = nullptr;
+    LIBRARY_CHECK(cudaMalloc((void**)(&dSigma), K * sizeof(T)));
+    LIBRARY_CHECK(cudaMemsetAsync(dSigma, 0, K * sizeof(T), stream));
+    LIBRARY_CHECK(cudaMemcpy2DAsync(dSigma, sizeof(T), dS, sizeof(double), sizeof(double), K,
+      cudaMemcpyDeviceToDevice, stream));
+    LIBRARY_CHECK(cublasZdgmm(cublasH, CUBLAS_SIDE_RIGHT, M, K,
+      reinterpret_cast<const cuDoubleComplex*>(dU), M, reinterpret_cast<const cuDoubleComplex*>(dSigma), 1,
+      reinterpret_cast<cuDoubleComplex*>(dB), M));
+    LIBRARY_CHECK(cudaFree(dSigma));
+  }
+  LIBRARY_CHECK(cudaMemcpyAsync(dA, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice, stream));
+  LIBRARY_CHECK(vendor_gemm(cublasH, CUBLAS_OP_N, CUBLAS_OP_C, M, N, K, &minus_one, dB, M, dV, N, &one, dA, M));
+  double err_usvh = 0.;
+  LIBRARY_CHECK(vendor_norm(cublasH, M * N, dA, int64_t(1), &err_usvh));
+  err_usvh = nrm == 0. ? 0. : err_usvh / nrm;
+  LIBRARY_CHECK(cudaFree(dB));
+
   int64_t l = K + oversampling;
   double svd_flops = randomized_svd_flops(double(M), double(N), double(l), double(power_iter), vendor_flop_factor<T>);
-  printf("CUSOLVER-%cGESVDR [M=%ld,N=%ld] [err=%.12le] [rank=%ld] [kernel=%lf ms] [%lf GFlops]\n",
-    vendor_precision<T>, M, N, err, K, kernel_time, (1.e-6 * double(svd_flops)) / kernel_time);
+  printf("CUSOLVER-%cGESVDR [M=%ld,N=%ld] [err_AVVH=%.12le] [err_USVH=%.12le] [rank=%ld] [kernel=%lf ms] [%lf GFlops]\n",
+    vendor_precision<T>, M, N, err, err_usvh, K, kernel_time, (1.e-6 * double(svd_flops)) / kernel_time);
 
   LIBRARY_CHECK(cudaEventDestroy(start));
   LIBRARY_CHECK(cudaEventDestroy(stop));

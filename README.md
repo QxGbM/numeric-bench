@@ -30,6 +30,11 @@ copies are excluded from kernel time. The EVD path rebuilds the Gram matrix on
 every run. Its kernel, communication, and total times are averaged separately.
 MAGMA's host time includes setup, validation, and all repetitions.
 
+GESVDR keeps `jobu=N`, `jobvt=S` for timing and reports its V-side projection
+error as `err_AVVH`. An additional untimed `jobu=S`, `jobvt=S` decomposition forms
+`B=U*S` with cuBLAS DGMM and reports `err_USVH = ||A-B*V^H||_F / ||A||_F`.
+Both checks run for real and complex FP64.
+
 GESVD throughput uses the conventional estimate
 `4*M*N^2 + 8*N^3 + 9*N^2` for real arithmetic, scaled by four for complex
 arithmetic. This replaces the incorrect `M^2*N` term. These are algorithmic
