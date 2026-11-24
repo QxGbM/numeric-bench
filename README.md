@@ -18,6 +18,7 @@ BLAS operations, and solver compute types throughout the benchmark.
 ./build/xgesvd_cusolver.app M=4096 N=512 epi=1e-12 data=D
 ./build/xgesvdr_cusolver.app M=4096 N=512 K=64 oversampling=16 piters=1 data=D
 ./build/xgesvj_magma_batch.app M=256 N=128 batchN=16 eps=1e-12 data=D
+./build/xgersvd_kblas_batch.app M=256 N=256 K=64 batchN=16 eps=1e-12 data=D
 CUDA_VISIBLE_DEVICES=0 ./build/xgevd_vendor.app M=4096 N=512 K=64 data=D
 ```
 
@@ -67,6 +68,52 @@ success and zero `info`. Complex `M=192 N=96` and `M=96 N=192` were verified on
 this GPU. Other affected shapes require a change to MAGMA's tuning or use of its
 expert interface with a smaller block size. The scalar `1x1` case is also rejected
 because MAGMA 2.10's fused path fails an internal thread-count assertion.
+
+`xgersvd_kblas_batch.app` profiles KBLAS GERSVD through
+`kblasDsvd_full_batch_strided(..., SVD_random, ...)`. Defaults are
+`M=256 N=256 K=64 batchN=16 eps=1e-12 data=D seed=0`. It uses the shared
+generator for one `M`-by-`N*batchN` matrix and requests rank `K` for every block.
+The installed KBLAS SVD interface supports real FP32/FP64 only; this benchmark
+uses FP64 and explicitly rejects `data=Z`. Dimensions, batch count, strides, and
+per-block workspace must fit KBLAS's integer interface, with
+`1 <= K <= min(M,N)` and `K<N` so the timed call
+uses the randomized algorithm. KBLAS's `K=N` fallback switches to ordinary Jacobi
+and failed the tall-block workspace/reconstruction checks in this installation;
+this benchmark rejects that boundary.
+This interface exposes neither oversampling nor power iterations.
+
+The installed FP64 batched QR has a **1024-row limit**, independent of alignment.
+With `QR_SUPPORT_LARGE` enabled, its configured maximum is
+`32768 / (4 * sizeof(double)) = 1024`. GERSVD applies QR to both an `M`-by-`K`
+sample and an `N`-by-`K` projection, so the benchmark rejects either `M>1024` or
+`N>1024` before GPU setup. Padding the leading dimension does not bypass this
+check. The public header still documents 512 rows; the
+[kernel configuration](https://github.com/ecrc/kblas-gpu/blob/master/src/batch_svd/qr_kernels.cuh#L22-L36)
+and [QR argument check](https://github.com/ecrc/kblas-gpu/blob/master/src/batch_svd/batch_qr.cu#L940-L944)
+give the effective limit in this installation.
+
+KBLAS returns a left basis `U` and a scaled right factor `V=A^T*U`, so the
+reconstruction is `U*V^T`. Singular values must not be multiplied into these
+factors again. Validation sorts the returned singular values and the
+corresponding factor columns, applies the same Frobenius-tail truncation rule
+as GESVD, and reports the concatenated relative residual as `err_UVT`.
+`eps` affects validation only, and a rank cap can prevent the requested
+tolerance from being reached.
+
+The random state and queried workspace are allocated before timing. Each timed
+call uses the original rank `K`, restores the input outside the measured interval,
+and runs on the KBLAS handle's CUDA stream; reported kernel time is the mean over
+`kernel_runs`. KBLAS's internal input copy and factor construction remain part of
+the timed full-interface call. Return codes and CUDA completion are checked.
+Flops are leading-order estimates for the randomized factorization plus its
+left-basis rotation and final `A^T*U`; convergence-dependent inner Jacobi work is
+not counted exactly.
+
+CMake requires the installed `kblasgpu` package and links this benchmark through
+`KBLASGPU::kblasgpu`. Its default search path is
+`~/cmake_install/lib64/cmake/kblasgpu`; use `-Dkblasgpu_DIR=/path/to/package` to
+select another installation. The package supplies its CUDA, BLAS, OpenMP, and
+MAGMA dependencies.
 
 GESVD throughput uses the conventional estimate
 `4*M*N^2 + 8*N^3 + 9*N^2` for real arithmetic, scaled by four for complex
