@@ -21,7 +21,7 @@ find_package(MPI REQUIRED COMPONENTS CXX)
 pkg_check_modules(MAGMA REQUIRED magma)
 
 set(cpp_sources
-  syrk_bench.cpp xgeqp3_magma.cpp xgesvd_cusolver.cpp xgesvdr_cusolver.cpp
+  syrk_bench.cpp xgeqp3_magma.cpp xgesvd_cusolver.cpp xgesvdr_cusolver.cpp xgesvj_magma_batch.cpp
   xlra_hyacin.cpp xsvd_hyacin.cpp xgevd_vendor.cpp xsvd_1drow_hyacin.cpp bootstrap_check.cpp
   tests/vendor_checks.cpp tests/hyacin_checks.cpp)
 set(cu_sources

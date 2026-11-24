@@ -17,6 +17,7 @@ BLAS operations, and solver compute types throughout the benchmark.
 ./build/xgeqp3_magma.app M=4096 N=512 epi=1e-12 data=D
 ./build/xgesvd_cusolver.app M=4096 N=512 epi=1e-12 data=D
 ./build/xgesvdr_cusolver.app M=4096 N=512 K=64 oversampling=16 piters=1 data=D
+./build/xgesvj_magma_batch.app M=256 N=128 batchN=16 eps=1e-12 data=D
 CUDA_VISIBLE_DEVICES=0 ./build/xgevd_vendor.app M=4096 N=512 K=64 data=D
 ```
 
@@ -34,6 +35,38 @@ GESVDR keeps `jobu=N`, `jobvt=S` for timing and reports its V-side projection
 error as `err_AVVH`. An additional untimed `jobu=S`, `jobvt=S` decomposition forms
 `B=U*S` with cuBLAS DGMM and reports `err_USVH = ||A-B*V^H||_F / ||A||_F`.
 Both checks run for real and complex FP64.
+
+`xgesvj_magma_batch.app` benchmarks `magma_dgesvj_batched_strided` or
+`magma_zgesvj_batched_strided` on one GPU with `MagmaVec` for both U and V.
+Defaults are `M=32 N=32 batchN=1024 eps=1e-12 data=D`. Both tall and wide blocks
+are supported, including dimensions above 32. These MAGMA routines take
+GPU-resident arrays despite having no `_gpu` suffix; they return economy-size
+`M`-by-`min(M,N)` U and `N`-by-`min(M,N)` V factors. Dimensions, batch count, and
+per-matrix strides must fit MAGMA's integer type. The shared generator
+creates one `M`-by-`N*batchN` matrix, with consecutive groups of `N` columns
+forming the batch.
+
+Only validation uses `eps`: each block is truncated using the same reverse
+cumulative squared-singular-value rule as the GESVD benchmark. `err_USVH`
+reports `||B-A||_F/||A||_F` for the concatenated reconstruction
+`B=[U1*S1*V1^H U2*S2*V2^H ...]`. The output includes minimum, mean, and maximum
+retained rank. Timed calls compute economy-size singular vectors without truncation,
+restore the input before each call, exclude copy time, and average over
+`kernel_runs` using events on the MAGMA queue's CUDA stream. The driver's
+internal workspace setup remains part of each timed call. Both the MAGMA return
+status and every batch member's `info` are checked after each call.
+The reported `flops` and GFlops use a GESVD-equivalent estimate summed over the
+batch, `batchN * gesvd_flops(max(M,N), min(M,N), scalar_factor)`; actual Jacobi
+work depends on convergence, and this strided driver does not expose sweep counts.
+
+On the RTX A5000, MAGMA 2.10's default complex block-size tuning can exceed
+available shared memory for some shapes, including `M=128 N=64 data=Z`.
+The benchmark rejects a blocked path when its matrix/eigenvector storage alone
+exceeds the GPU limit; MAGMA can otherwise print an error while returning
+success and zero `info`. Complex `M=192 N=96` and `M=96 N=192` were verified on
+this GPU. Other affected shapes require a change to MAGMA's tuning or use of its
+expert interface with a smaller block size. The scalar `1x1` case is also rejected
+because MAGMA 2.10's fused path fails an internal thread-count assertion.
 
 GESVD throughput uses the conventional estimate
 `4*M*N^2 + 8*N^3 + 9*N^2` for real arithmetic, scaled by four for complex
