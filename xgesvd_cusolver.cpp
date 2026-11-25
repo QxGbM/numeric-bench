@@ -4,15 +4,15 @@
 
 template <class T>
 int32_t run(int32_t argc, char* argv[]) {
-  int64_t M = 2048, N = 2048; double epi = 1.e-12;
+  int64_t M = 2048, N = 2048; double eps = 1.e-12;
   for (int32_t i = 1; i < argc; ++i) {
     if (std::strncmp(argv[i], "M=", 2) == 0) { std::sscanf(argv[i], "M=%ld", &M); }
     else if (std::strncmp(argv[i], "N=", 2) == 0) { std::sscanf(argv[i], "N=%ld", &N); }
-    else if (std::strncmp(argv[i], "epi=", 4) == 0) { std::sscanf(argv[i], "epi=%le", &epi); }
+    else if (std::strncmp(argv[i], "eps=", 4) == 0) { std::sscanf(argv[i], "eps=%le", &eps); }
     else if (std::strncmp(argv[i], "data=", 5) == 0) {}
     else { std::cerr << "Ignored parameter: " << argv[i] << std::endl; }
   }
-  if (M <= 0 || N <= 0 || epi < 0. || !std::isfinite(epi)) throw std::invalid_argument("Require M,N > 0 and finite epi >= 0");
+  if (M <= 0 || N <= 0 || eps < 0. || !std::isfinite(eps)) throw std::invalid_argument("Require M,N > 0 and finite eps >= 0");
   N = std::min(M, N);
 
   LIBRARY_CHECK(cudaSetDevice(0));
@@ -63,7 +63,7 @@ int32_t run(int32_t argc, char* argv[]) {
   LIBRARY_CHECK(cudaMemcpy(S.data(), dS, N * sizeof(double), cudaMemcpyDeviceToHost));
   std::transform_inclusive_scan(S.rbegin(), S.rend(), S.rbegin(), std::plus<double>(), [](double x) { return x * x; });
   int64_t rank = 0;
-  if (std::numeric_limits<double>::min() <= S[0]) { double s0 = S[0] * std::pow(epi, 2); rank = std::distance(&S[0], std::find_if(&S[0], &S[N], [=](double s) { return s < s0; })); }
+  if (std::numeric_limits<double>::min() <= S[0]) { double s0 = S[0] * std::pow(eps, 2); rank = std::distance(&S[0], std::find_if(&S[0], &S[N], [=](double s) { return s < s0; })); }
 
   LIBRARY_CHECK(cudaMemcpy(dA, matA.data(), M * N * sizeof(T), cudaMemcpyHostToDevice));
   double nrm = 0., err = 0.; T minus_one(-1.), one(1.), zero(0.);

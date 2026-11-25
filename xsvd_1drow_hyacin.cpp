@@ -3,7 +3,7 @@
 #include <iostream>
 #include <chrono>
 
-template <class T, class R> inline void run(char prec, double epi, int64_t gM, int64_t N, int64_t K, int64_t mb, int32_t grid_row, int32_t tile_m, ncclUniqueId id) {
+template <class T, class R> inline void run(char prec, double eps, int64_t gM, int64_t N, int64_t K, int64_t mb, int32_t grid_row, int32_t tile_m, ncclUniqueId id) {
   int64_t lM = mb * (gM / (mb * tile_m));
   lM += std::max(int64_t(0), std::min(mb, gM - lM * tile_m - mb * grid_row));
 
@@ -26,13 +26,13 @@ template <class T, class R> inline void run(char prec, double epi, int64_t gM, i
   LIBRARY_CHECK(ncclCommInitRank(&comm, tile_m, id, grid_row));
   hyacinCreate(&handle); handle.ncclComm = comm;
 
-  int32_t rank = hyacinTsvdFitSegmentN(&handle, epi, 'N', lM, N, K, d_A, lM, d_S, d_V, N, gM, hyacin_prec<T>());
+  int32_t rank = hyacinTsvdFitSegmentN(&handle, eps, 'N', lM, N, K, d_A, lM, d_S, d_V, N, gM, hyacin_prec<T>());
   hyacinSync_TimerSegments(&handle, nullptr, 0);
 
   LIBRARY_CHECK(ncclAllReduce(d_barrier, d_barrier, 1, ncclInt32, ncclMin, comm, handle.cudaStream));
   LIBRARY_CHECK(cudaStreamSynchronize(handle.cudaStream));
   for (int32_t i = 0; i < kernel_runs; ++i)
-    rank = hyacinTsvdFitSegmentN(&handle, epi, 'N', lM, N, K, d_A, lM, d_S, d_V, N, gM, hyacin_prec<T>());
+    rank = hyacinTsvdFitSegmentN(&handle, eps, 'N', lM, N, K, d_A, lM, d_S, d_V, N, gM, hyacin_prec<T>());
 
   double eventMs[3]{ 'D', 'R', 'C' }; hyacinSync_TimerSegments(&handle, eventMs, 3);
   double kernel_time = eventMs[0] + eventMs[1] + eventMs[2], rep_time = eventMs[1], comm_time = eventMs[2];
@@ -57,14 +57,14 @@ template <class T, class R> inline void run(char prec, double epi, int64_t gM, i
   // Global equivalent work, divided by the already averaged per-run time.
   const double flops = randomized_svd_flops(double(gM), double(N), double(rank), 0., benchmark_flop_factor<T>);
 
-  printf("%c-SVD#%d [M=%ld,N=%ld,K=%ld] [epi=%.1le] [err=%.12le] [rank=%d] [host=%lf ms] [kernel=%lf ms] [replicate=%lf ms] [comm=%lf ms] [flops=%.6le] [%lf GFlops]\n",
-    prec, grid_row, gM, N, K, epi, err, rank, duration, kernel_time, rep_time, comm_time, flops, (1.e-6 * flops) / kernel_time);
+  printf("%c-SVD#%d [M=%ld,N=%ld,K=%ld] [eps=%.1le] [err=%.12le] [rank=%d] [host=%lf ms] [kernel=%lf ms] [replicate=%lf ms] [comm=%lf ms] [flops=%.6le] [%lf GFlops]\n",
+    prec, grid_row, gM, N, K, eps, err, rank, duration, kernel_time, rep_time, comm_time, flops, (1.e-6 * flops) / kernel_time);
 }
 
 int32_t main(int32_t argc, char* argv[]) try {
   char prec = 'D', algo = 'A';
   int64_t gM = 2048, N = 2048, K = 2048, mb = 512; int32_t jacobi_sweeps = 5, u_corr = 7, batch = 8192;
-  double epi = 1.e-12;
+  double eps = 1.e-12;
   int32_t ranks = 1;
 
   for (int32_t i = 1; i < argc; ++i) {
@@ -72,7 +72,7 @@ int32_t main(int32_t argc, char* argv[]) try {
     else if (std::strncmp(argv[i], "N=", 2) == 0) { std::sscanf(argv[i], "N=%ld", &N); }
     else if (std::strncmp(argv[i], "K=", 2) == 0) { std::sscanf(argv[i], "K=%ld", &K); }
     else if (std::strncmp(argv[i], "data=", 5) == 0) { std::sscanf(argv[i], "data=%c", &prec); }
-    else if (std::strncmp(argv[i], "epi=", 4) == 0) { std::sscanf(argv[i], "epi=%lf", &epi); }
+    else if (std::strncmp(argv[i], "eps=", 4) == 0) { std::sscanf(argv[i], "eps=%lf", &eps); }
     else if (std::strncmp(argv[i], "ranks=", 6) == 0) { std::sscanf(argv[i], "ranks=%d", &ranks); }
     else if (std::strncmp(argv[i], "mb=", 3) == 0) { std::sscanf(argv[i], "mb=%ld", &mb); }
     else if (std::strncmp(argv[i], "algo=", 5) == 0) { std::sscanf(argv[i], "algo=%c", &algo); }
@@ -92,12 +92,12 @@ int32_t main(int32_t argc, char* argv[]) try {
   LIBRARY_CHECK(cudaDeviceReset());
 
   switch(prec) {
-    case 'D': run<double, double>(prec, epi, gM, N, K, mb, world_rank, world_size, id); break;
-    case 'S': run<float, float>(prec, epi, gM, N, K, mb, world_rank, world_size, id); break;
-    case 'H': run<__half, __half>(prec, epi, gM, N, K, mb, world_rank, world_size, id); break;
-    case 'Z': run<cuDoubleComplex, double>(prec, epi, gM, N, K, mb, world_rank, world_size, id); break;
-    case 'C': run<cuComplex, float>(prec, epi, gM, N, K, mb, world_rank, world_size, id); break;
-    case 'J': run<__half2, __half>(prec, epi, gM, N, K, mb, world_rank, world_size, id); break;
+    case 'D': run<double, double>(prec, eps, gM, N, K, mb, world_rank, world_size, id); break;
+    case 'S': run<float, float>(prec, eps, gM, N, K, mb, world_rank, world_size, id); break;
+    case 'H': run<__half, __half>(prec, eps, gM, N, K, mb, world_rank, world_size, id); break;
+    case 'Z': run<cuDoubleComplex, double>(prec, eps, gM, N, K, mb, world_rank, world_size, id); break;
+    case 'C': run<cuComplex, float>(prec, eps, gM, N, K, mb, world_rank, world_size, id); break;
+    case 'J': run<__half2, __half>(prec, eps, gM, N, K, mb, world_rank, world_size, id); break;
     default: break;
   }
 

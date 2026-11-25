@@ -12,51 +12,70 @@ static void require(bool condition, const char* message) {
   if (!condition) throw std::runtime_error(message);
 }
 
-class TestMatrix : public DenseMatrixCustom {
+template <class T>
+class TestMatrix : public DenseMatrixCustom<T> {
+  using TestBackend = DenseMatrixCustom<T>;
+  using TestBackend::A;
+  using DenseMatrix<T>::stream;
+  using TestBackend::handle;
+
 public:
-  using DenseMatrixCustom::DenseMatrixCustom;
+  using TestBackend::TestBackend;
   bool borrows(cudaStream_t expectedStream, cublasHandle_t expectedBlas, cusolverDnHandle_t expectedSolver) const {
     return handle.cudaStream == expectedStream && handle.cublasHandle == expectedBlas &&
            handle.cusolverHandle == expectedSolver && handle.ncclComm == nullptr;
   }
-  void setStored(const std::vector<std::complex<double>>& values) {
+  void setStored(const std::vector<T>& values) {
     require(values.size() == A.size(), "Invalid test matrix dimensions");
-    CUDA_CHECK(cudaMemcpyAsync(deviceData(A), values.data(), values.size() * sizeof(cuDoubleComplex),
+    CUDA_CHECK(cudaMemcpyAsync(deviceData(A), values.data(), values.size() * sizeof(T),
                                cudaMemcpyHostToDevice, stream));
     CUDA_CHECK(cudaStreamSynchronize(stream));
   }
-  std::vector<std::complex<double>> stored() const {
-    std::vector<std::complex<double>> result(A.size());
-    copyToHost(result.data(), deviceData(A), result.size() * sizeof(cuDoubleComplex), stream);
+  std::vector<T> stored() const {
+    std::vector<T> result(A.size());
+    copyToHost(result.data(), deviceData(A), result.size() * sizeof(T), stream);
     return result;
   }
 };
 
+template <class T>
+static T testValue(double real, double imag) {
+  if constexpr (hssComplex<T>) return T(real, imag);
+  else return real;
+}
+
+template <class T>
+static T adjointValue(T value) {
+  if constexpr (hssComplex<T>) return std::conj(value);
+  else return value;
+}
+
+template <class T>
 static void checkCompression(int rows, int cols, int blocks, int rank, ncclComm_t comm,
     cublasHandle_t blas, cusolverDnHandle_t solver, cudaStream_t stream) {
-  TestMatrix matrix(cols * blocks, rows, comm, nullptr, blas, solver, stream);
+  TestMatrix<T> matrix(cols * blocks, rows, comm, nullptr, blas, solver, stream);
   require(matrix.eps == 0., "Base tolerance must initialize to zero");
   require(matrix.borrows(stream, blas, solver), "Hyacin must reuse the HSS CUDA resources");
-  DenseMatrix& polymorphic = matrix;
+  DenseMatrix<T>& polymorphic = matrix;
   matrix.eps = 1.e-8;
   polymorphic.iterateTolerance();
   require(matrix.eps == 1.e-8, "Hyacin must retain the base tolerance across levels");
-  std::vector<std::complex<double>> original(static_cast<size_t>(rows) * cols * blocks);
+  std::vector<T> original(static_cast<size_t>(rows) * cols * blocks);
   for (int b = 0; b < blocks; ++b) for (int j = 0; j < cols; ++j) for (int i = 0; i < rows; ++i) {
     // A rank-four diagonal block exercises overlapping compaction when blocks=2.
     if (rank == 4)
       original[i + static_cast<size_t>(b * cols + j) * rows] = i == j && i < rank ? 4. - i : 0.;
     else {
-      const std::complex<double> u(1. + .2 * i, .1 * i);
-      const std::complex<double> v(.5 + .3 * j, -.2 * j);
-      const std::complex<double> x(std::sin(i + .2), std::cos(i + .3));
-      const std::complex<double> y(std::cos(j + .4), std::sin(j + .5));
+      const T u = testValue<T>(1. + .2 * i, .1 * i);
+      const T v = testValue<T>(.5 + .3 * j, -.2 * j);
+      const T x = testValue<T>(std::sin(i + .2), std::cos(i + .3));
+      const T y = testValue<T>(std::cos(j + .4), std::sin(j + .5));
       original[i + static_cast<size_t>(b * cols + j) * rows] = u * v + .1 * x * y;
     }
   }
   matrix.setStored(original);
   std::vector<long long> recipe(blocks, cols);
-  std::vector<std::complex<double>> basis;
+  std::vector<T> basis;
   polymorphic.compress(recipe, basis, comm, nullptr);
   require(std::all_of(recipe.begin(), recipe.end(), [rank](long long r) { return r == rank; }),
           "Recipe must contain the internally truncated Hyacin rank");
@@ -66,17 +85,17 @@ static void checkCompression(int rows, int cols, int blocks, int rank, ncclComm_
   double productError = 0., productNorm = 0., residual = 0., inputNorm = 0.;
   for (int b = 0; b < blocks; ++b) {
     for (int k = 0; k < rank; ++k) for (int i = 0; i < rows; ++i) {
-      std::complex<double> expected = 0.;
+      T expected = 0.;
       for (int j = 0; j < cols; ++j)
         expected += original[i + static_cast<size_t>(b * cols + j) * rows] * basis[j + static_cast<size_t>(b * rank + k) * cols];
       productError += std::norm(compact[i + static_cast<size_t>(b * rank + k) * rows] - expected);
       productNorm += std::norm(expected);
     }
     for (int j = 0; j < cols; ++j) for (int i = 0; i < rows; ++i) {
-      std::complex<double> reconstructed = 0.;
+      T reconstructed = 0.;
       for (int k = 0; k < rank; ++k)
         reconstructed += compact[i + static_cast<size_t>(b * rank + k) * rows] *
-          std::conj(basis[j + static_cast<size_t>(b * rank + k) * cols]);
+          adjointValue(basis[j + static_cast<size_t>(b * rank + k) * cols]);
       const auto entry = original[i + static_cast<size_t>(b * cols + j) * rows];
       residual += std::norm(entry - reconstructed); inputNorm += std::norm(entry);
     }
@@ -84,6 +103,7 @@ static void checkCompression(int rows, int cols, int blocks, int rank, ncclComm_
   require(std::sqrt(productError / productNorm) < 1.e-12, "Compact factor must equal A*V, including overlapping block compaction");
   require(std::sqrt(residual / inputNorm) < 1.e-8, "Hyacin must reconstruct this low-rank input");
   std::cout << "Hyacin block " << rows << "x" << cols << ", blocks=" << blocks << ", rank=" << rank
+            << ", data=" << (hssComplex<T> ? 'Z' : 'D')
             << ": A*V error=" << std::sqrt(productError / productNorm)
             << ", reconstruction error=" << std::sqrt(residual / inputNorm) << '\n';
 }
@@ -100,11 +120,14 @@ int main(int argc, char* argv[]) try {
   CUDA_CHECK(cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking));
   CUBLAS_CHECK(cublasCreate(&blas)); CUBLAS_CHECK(cublasSetStream(blas, stream));
   CUSOLVER_CHECK(cusolverDnCreate(&solver)); CUSOLVER_CHECK(cusolverDnSetStream(solver, stream));
-  checkCompression(10, 6, 1, 2, comm, blas, solver, stream); // Tall input.
-  checkCompression(6, 10, 1, 2, comm, blas, solver, stream); // Wide input, no adjoint workaround.
-  checkCompression(10, 6, 2, 4, comm, blas, solver, stream); // Overlapping packing of successive blocks.
+  checkCompression<double>(10, 6, 1, 2, comm, blas, solver, stream);
+  checkCompression<std::complex<double>>(10, 6, 1, 2, comm, blas, solver, stream); // Tall input.
+  checkCompression<double>(6, 10, 1, 2, comm, blas, solver, stream);
+  checkCompression<std::complex<double>>(6, 10, 1, 2, comm, blas, solver, stream); // Wide input, no adjoint workaround.
+  checkCompression<double>(10, 6, 2, 4, comm, blas, solver, stream);
+  checkCompression<std::complex<double>>(10, 6, 2, 4, comm, blas, solver, stream); // Overlapping packing of successive blocks.
   {
-    DenseMatrixCustom matrix(6, 10, comm, nullptr, blas, solver, stream);
+    DenseMatrixCustom<std::complex<double>> matrix(6, 10, comm, nullptr, blas, solver, stream);
     matrix.eps = std::numeric_limits<double>::quiet_NaN();
     std::vector<long long> recipe{6}; std::vector<std::complex<double>> basis;
     bool rejected = false;

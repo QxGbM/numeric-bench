@@ -14,15 +14,15 @@ for complex FP64. This selects real or complex matrix generation, storage,
 BLAS operations, and solver compute types throughout the benchmark.
 
 ```
-./build/xgeqp3_magma.app M=4096 N=512 epi=1e-12 data=D
-./build/xgesvd_cusolver.app M=4096 N=512 epi=1e-12 data=D
+./build/xgeqp3_magma.app M=4096 N=512 eps=1e-12 data=D
+./build/xgesvd_cusolver.app M=4096 N=512 eps=1e-12 data=D
 ./build/xgesvdr_cusolver.app M=4096 N=512 K=64 oversampling=16 piters=1 data=D
 ./build/xgesvj_magma_batch.app M=256 N=128 batchN=16 eps=1e-12 data=D
 ./build/xgersvd_kblas_batch.app M=256 N=256 K=64 batchN=16 eps=1e-12 data=D
 CUDA_VISIBLE_DEVICES=0 ./build/xgevd_vendor.app M=4096 N=512 K=64 data=D
 ```
 
-MAGMA accepts named arguments (`M=... N=... epi=... data=D`), matching the
+MAGMA accepts named arguments (`M=... N=... eps=... data=D`), matching the
 other vendor benchmarks. The SYRK/HERK + EVD benchmark uses NCCL; set
 `CUDA_VISIBLE_DEVICES` to the GPU list for its row-distributed run.
 
@@ -174,7 +174,7 @@ communication segment; its throughput is for the whole problem.
 
 # HSS construction benchmark
 
-`hss_cusolver.app` constructs a complex FP64 HSS representation from a distributed
+`hss_cusolver.app` constructs a real or complex FP64 HSS representation from a distributed
 dense Helmholtz matrix and compares its matvec against the dense reference. It
 uses MPI processes with NCCL GPU communication; local MPI ranks select GPUs from
 `CUDA_VISIBLE_DEVICES` in round-robin order. Each active local MPI process must
@@ -182,16 +182,18 @@ use a distinct physical GPU; launching more active local processes than visible
 GPUs with a shared device list is rejected by NCCL.
 
 ```
-CUDA_VISIBLE_DEVICES=0,1 mpiexec -n 2 ./build/hss_cusolver.app 2048 512 1e-10
+CUDA_VISIBLE_DEVICES=0,1 mpiexec -n 2 ./build/hss_cusolver.app N=2048 leaf_size=512 eps=1e-10 data=D
 ```
 
-The positional arguments are matrix order, leaf size, and construction tolerance,
-with defaults `2048`, `512`, and `1e-10`. `DenseMatrix::eps` is public and initialized
-to `0.` (no tolerance-based truncation). Set it before construction; the benchmark
-assigns `denseA.eps = epi` before `matA.evalMatVecA(denseA, cell.data())`.
-Compression and evaluation read the stored tolerance rather than accepting a
-separate tolerance argument. The reported error checks one deterministic random
-right-hand side; it is not a full matrix-norm error bound.
+All HSS benchmarks accept `N` (matrix order, default 2048), `leaf_size` (default
+512), and `data=D` for real FP64 or `data=Z` for complex FP64 (default). The
+real benchmark generates the real part of the same Helmholtz kernel. The GESVD and
+Hyacin backends accept `eps` for construction tolerance (default `1e-10`). The
+original positional forms also work, with `data` passed as a named argument.
+
+`DenseMatrix<T>::eps` is public and initialized to `0.`. The benchmark sets it
+before HSS construction. The reported error compares the HSS and dense
+matvec results for one deterministic random right-hand side.
 
 All benchmarks require MPI and a Hyacin installation built with NCCL. CMake
 always builds the dense and HSS targets and links MPI; no MPI/NCCL feature flags
@@ -248,24 +250,21 @@ the MPI bootstrap is the more reliable profiling path.
 `hss_rsvd.app` shares all HSS construction, redistribution, communication, and
 matvec code with `hss_cusolver.app` through `hss_common.hpp`. These headers are
 independent of the dense benchmark headers. `DenseMatrixCustom`, defined in
-`hss_rsvd.cu`, is local to that executable and derives from `DenseMatrix`; virtual compression and tolerance hooks
-select its RSVD behavior when HSS holds a `DenseMatrix&`.
+`hss_rsvd.cu`, is local to that executable and derives from `DenseMatrix<T>`. Virtual compression and tolerance hooks select
+its RSVD behavior when HSS holds a `DenseMatrix<T>&`.
 
 ```
-CUDA_VISIBLE_DEVICES=0,1 mpiexec -n 2 ./build/hss_rsvd.app 2048 512 200 0 0 1.15
+CUDA_VISIBLE_DEVICES=0,1 mpiexec -n 2 ./build/hss_rsvd.app N=2048 leaf_size=512 K=200 oversampling=0 piters=0 alpha=1.15 data=D
 ```
 
-Positional arguments are matrix order, leaf size, leaf rank, oversampling, power
-iterations, and alpha. The defaults are `2048 512 200 0 0 1.15`.
-`DenseMatrixCustom` publicly exposes `K`, `oversampling`, `power_iters`, and
-`alpha`. At each existing level-transition hook, `K` becomes
-`floor(double(K) * alpha)`. `eps` remains on the base class and is ignored by RSVD.
-The GESVD executable retains its original `Nbody leaf_size eps` arguments and
-its no-op tolerance-iteration hook.
+`K` sets the leaf rank (default 200). `oversampling` and `piters` default to 0,
+and `alpha` defaults to 1.15. At each level transition, the rank parameter
+becomes `floor(double(K) * alpha)`. RSVD keeps the base class's `eps` field
+unused.
 
 RSVD calls `cusolverDnXgesvdr` with `jobu=N`, `jobvt=S` on the original block
 shape, including wide blocks. It preserves the input and computes the compact
-left factor as `A*V` with complex FP64 GEMM. Singular values are neither used to
+left factor as `A*V` with real or complex FP64 GEMM. Singular values are neither used to
 scale the compact factor nor read for tail truncation; every compressed block
 writes exactly `K` into its recipe. Invalid rank/oversampling combinations are
 rejected rather than silently reducing `K`: cuSOLVER requires
@@ -288,16 +287,14 @@ ctest --test-dir build -R hss_rsvd_gpu_checks --output-on-failure
 `hss_hyacin.cu`.
 
 ```
-CUDA_VISIBLE_DEVICES=0,1 mpiexec -n 2 ./build/hss_hyacin.app 2048 512 1e-10
+CUDA_VISIBLE_DEVICES=0,1 mpiexec -n 2 ./build/hss_hyacin.app N=2048 leaf_size=512 eps=1e-10 data=Z
 ```
 
-Positional arguments are matrix order, leaf size, and tolerance, with defaults
-`2048 512 1e-10`. Compression uses the base class's public `eps` and retains the
+Compression uses the base class's public `eps` and retains the
 base no-op tolerance-iteration hook. Hyacin fits the right basis directly for
 both tall and wide blocks, caps the rank at `min(M,N)`, and writes its internally
 truncated rank into the recipe. The input and basis use separate allocations,
-so the preserved input supplies the compact left factor through `A*V` in complex
-FP64 math.
+so the preserved input supplies the compact left factor through `A*V` in the selected FP64 precision.
 
 The matrix owns one Hyacin handle, initialized with the HSS stream, cuBLAS, and
 cuSOLVER handles before `hyacinCreate`. This requires Hyacin's null-checking

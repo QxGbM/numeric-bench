@@ -65,15 +65,15 @@ double check_answer_lra(int32_t rank, int32_t M, int32_t N, const T* A, int32_t 
 template <class T>
 int32_t run(int32_t argc, char* argv[]) {
   int64_t M = 2048, N = 2048;
-  double epi = 1.e-12;
+  double eps = 1.e-12;
   for (int32_t i = 1; i < argc; ++i) {
     if (std::strncmp(argv[i], "M=", 2) == 0) { std::sscanf(argv[i], "M=%ld", &M); }
     else if (std::strncmp(argv[i], "N=", 2) == 0) { std::sscanf(argv[i], "N=%ld", &N); }
-    else if (std::strncmp(argv[i], "epi=", 4) == 0) { std::sscanf(argv[i], "epi=%le", &epi); }
+    else if (std::strncmp(argv[i], "eps=", 4) == 0) { std::sscanf(argv[i], "eps=%le", &eps); }
     else if (std::strncmp(argv[i], "data=", 5) == 0) {}
     else { std::cerr << "Ignored parameter: " << argv[i] << std::endl; }
   }
-  if (M <= 0 || N <= 0 || epi < 0. || !std::isfinite(epi)) throw std::invalid_argument("Require M,N > 0 and finite epi >= 0");
+  if (M <= 0 || N <= 0 || eps < 0. || !std::isfinite(eps)) throw std::invalid_argument("Require M,N > 0 and finite eps >= 0");
   N = std::min(M, N);
 
   LIBRARY_CHECK(cudaSetDevice(0));
@@ -106,7 +106,7 @@ int32_t run(int32_t argc, char* argv[]) {
   std::vector<double> fnorms(N, 0.0), norms_sum(N);
   for (int64_t i = 0; i < N; ++i) for (int64_t j = i; j < N; ++j) { fnorms[i] += std::norm(matB[i + j * M]); }
   for (int64_t i = N - 1; 0 <= i; --i) { norms_sum[i] = i == N - 1 ? fnorms[i] : fnorms[i] + norms_sum[i + 1]; }
-  double s0 = std::pow(epi, 2) * norms_sum[0];
+  double s0 = std::pow(eps, 2) * norms_sum[0];
   int64_t rank = 0; while (rank < N && s0 < norms_sum[rank]) { ++rank; }
 
   T one(1.), zero(0.);
@@ -148,8 +148,8 @@ int32_t run(int32_t argc, char* argv[]) {
   std::chrono::duration<double, std::milli> host_wtime = std::chrono::high_resolution_clock::now() - host_start;
   double duration = host_wtime.count();
   double flops = interpolative_flops(double(M), double(N), double(rank), vendor_flop_factor<T>);
-  printf("MAGMA-%cGEQP3 [M=%ld,N=%ld] [epi=%.1le] [err=%.12le] [rank=%ld] [host=%lf ms] [kernel=%lf ms] [%lf GFlops]\n",
-    vendor_precision<T>, M, N, epi, err, rank, duration, kernel_time, (1.e-6 * flops) / kernel_time);
+  printf("MAGMA-%cGEQP3 [M=%ld,N=%ld] [eps=%.1le] [err=%.12le] [rank=%ld] [host=%lf ms] [kernel=%lf ms] [%lf GFlops]\n",
+    vendor_precision<T>, M, N, eps, err, rank, duration, kernel_time, (1.e-6 * flops) / kernel_time);
 
   LIBRARY_CHECK(cudaFree(dA));
   LIBRARY_CHECK(cudaFree(dC));

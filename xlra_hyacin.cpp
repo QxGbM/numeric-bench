@@ -3,7 +3,7 @@
 #include <iostream>
 #include <chrono>
 
-template <class T> inline void run(char prec, double epi, int64_t M, int64_t N) {
+template <class T> inline void run(char prec, double eps, int64_t M, int64_t N) {
   std::vector<T> matA(M * N);
   std::vector<int32_t> ipiv(N);
   matrix_generator<T>(1., M, N).generate_block(512, 512, &matA[0], M);
@@ -19,11 +19,11 @@ template <class T> inline void run(char prec, double epi, int64_t M, int64_t N) 
 
   hyacinHandle_t handle{};
   hyacinCreate(&handle);
-  int32_t rank = hyacinInterpolateFit(&handle, epi, 'N', M, N, N, d_A, M, jpvt, d_X, N, M, hyacin_prec<T>());
+  int32_t rank = hyacinInterpolateFit(&handle, eps, 'N', M, N, N, d_A, M, jpvt, d_X, N, M, hyacin_prec<T>());
   hyacinSync_TimerSegments(&handle, nullptr, 0);
 
   for (int32_t i = 0; i < kernel_runs; ++i)
-    rank = hyacinInterpolateFit(&handle, epi, 'N', M, N, N, d_A, M, jpvt, d_X, N, M, hyacin_prec<T>());
+    rank = hyacinInterpolateFit(&handle, eps, 'N', M, N, N, d_A, M, jpvt, d_X, N, M, hyacin_prec<T>());
 
   double eventMs[2]{ 'D', 'R' }; hyacinSync_TimerSegments(&handle, eventMs, 2);
   double nrm = hyacin_check_norm_fp64<T>(&handle, 'N', M, N, d_A, M, 0, nullptr, 0);
@@ -42,20 +42,20 @@ template <class T> inline void run(char prec, double epi, int64_t M, int64_t N) 
   kernel_time /= double(kernel_runs);
   const double flops = interpolative_flops(double(M), double(N), double(rank), benchmark_flop_factor<T>);
 
-  printf("%c-LRA [M=%ld,N=%ld] [epi=%.1le] [err=%.12le] [rank=%d] [host=%lf ms] [kernel=%lf ms] [flops=%.6le] [%lf GFlops]\n",
-    prec, M, N, epi, err, rank, duration, kernel_time, flops, (1.e-6 * flops) / kernel_time);
+  printf("%c-LRA [M=%ld,N=%ld] [eps=%.1le] [err=%.12le] [rank=%d] [host=%lf ms] [kernel=%lf ms] [flops=%.6le] [%lf GFlops]\n",
+    prec, M, N, eps, err, rank, duration, kernel_time, flops, (1.e-6 * flops) / kernel_time);
 }
 
 int32_t main(int32_t argc, char* argv[]) try {
   char prec = 'D', algo = 'A';
   int64_t M = 2048, N = 2048; int32_t u_corr = 7, batch = 8192;
-  double epi = 1.e-12;
+  double eps = 1.e-12;
 
   for (int32_t i = 1; i < argc; ++i) {
     if (std::strncmp(argv[i], "M=", 2) == 0) { std::sscanf(argv[i], "M=%ld", &M); }
     else if (std::strncmp(argv[i], "N=", 2) == 0) { std::sscanf(argv[i], "N=%ld", &N); }
     else if (std::strncmp(argv[i], "data=", 5) == 0) { std::sscanf(argv[i], "data=%c", &prec); }
-    else if (std::strncmp(argv[i], "epi=", 4) == 0) { std::sscanf(argv[i], "epi=%lf", &epi); }
+    else if (std::strncmp(argv[i], "eps=", 4) == 0) { std::sscanf(argv[i], "eps=%lf", &eps); }
     else if (std::strncmp(argv[i], "algo=", 5) == 0) { std::sscanf(argv[i], "algo=%c", &algo); }
     else if (std::strncmp(argv[i], "u_corr=", 7) == 0) { std::sscanf(argv[i], "u_corr=%d", &u_corr); }
     else if (std::strncmp(argv[i], "batch=", 6) == 0) { std::sscanf(argv[i], "batch=%d", &batch); }
@@ -67,12 +67,12 @@ int32_t main(int32_t argc, char* argv[]) try {
   LIBRARY_CHECK(cudaDeviceReset());
 
   switch(prec) {
-    case 'D': run<double>(prec, epi, M, N); break;
-    case 'S': run<float>(prec, epi, M, N); break;
-    case 'H': run<__half>(prec, epi, M, N); break;
-    case 'Z': run<cuDoubleComplex>(prec, epi, M, N); break;
-    case 'C': run<cuComplex>(prec, epi, M, N); break;
-    case 'J': run<__half2>(prec, epi, M, N); break;
+    case 'D': run<double>(prec, eps, M, N); break;
+    case 'S': run<float>(prec, eps, M, N); break;
+    case 'H': run<__half>(prec, eps, M, N); break;
+    case 'Z': run<cuDoubleComplex>(prec, eps, M, N); break;
+    case 'C': run<cuComplex>(prec, eps, M, N); break;
+    case 'J': run<__half2>(prec, eps, M, N); break;
     default: break;
   }
 
