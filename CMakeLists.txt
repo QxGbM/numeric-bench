@@ -25,7 +25,9 @@ find_package(Hyacin REQUIRED PATHS "~/cmake_install/lib/cmake")
 find_package(BLAS REQUIRED)
 find_package(MPI REQUIRED COMPONENTS CXX)
 pkg_check_modules(MAGMA REQUIRED magma)
-find_package(kblasgpu REQUIRED CONFIG PATHS "~/cmake_install/lib64/cmake/kblasgpu")
+
+set(magma_PREFIX ~/cmake_install)
+find_package(kblasgpu REQUIRED CONFIG PATHS "~/cmake_install" PATH_SUFFIXES "lib/cmake/kblasgpu" "lib64/cmake/kblasgpu")
 
 set(cpp_sources
   syrk_bench.cpp xgeqp3_magma.cpp xgesvd_cusolver.cpp xgesvdr_cusolver.cpp xgesvj_magma_batch.cpp xgersvd_kblas_batch.cpp
@@ -54,7 +56,5 @@ foreach (exe ${all_sources})
   add_executable(${src}.app ${exe})
   target_include_directories(${src}.app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${MAGMA_INCLUDE_DIRS})
   target_link_directories(${src}.app PRIVATE ${MAGMA_LIBRARY_DIRS})
-  target_link_libraries(${src}.app PRIVATE MPI::MPI_CXX Hyacin::hyacin BLAS::BLAS magma_sparse magma)
+  target_link_libraries(${src}.app PRIVATE MPI::MPI_CXX Hyacin::hyacin BLAS::BLAS KBLASGPU::kblasgpu)
 endforeach ()
-
-target_link_libraries(xgersvd_kblas_batch.app PRIVATE KBLASGPU::kblasgpu)
