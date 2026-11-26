@@ -98,6 +98,8 @@ int run(int argc, char* argv[]) {
   LIBRARY_CHECK(cudaMemcpyAsync(dA, matA.data(), bytes, cudaMemcpyHostToDevice, stream));
   double norm = 0., error = 0.;
   LIBRARY_CHECK(vendor_norm(blas, elements, dA, 1, &norm));
+  auto square = [](long double value) { return value * value; };
+  long double discardedEnergy = 0.;
   const double one = 1., minusOne = -1.;
   for (int64_t b = 0; b < batchN; ++b) {
     const double* S = singularValues.data() + b * strideS;
@@ -110,6 +112,12 @@ int run(int argc, char* argv[]) {
     std::stable_sort(order.begin(), order.end(), [S](int i, int j) { return S[i] > S[j]; });
     for (int j = 0; j < K; ++j) sortedS[j] = S[order[j]];
     const int rank = ranks[b] = validation_rank(sortedS, eps);
+    const double* block = matA.data() + b * strideA;
+    const long double blockEnergy = std::transform_reduce(block, block + strideA, 0.L,
+      std::plus<long double>(), square);
+    const long double retainedEnergy = std::transform_reduce(sortedS.begin(), sortedS.begin() + rank, 0.L,
+      std::plus<long double>(), square);
+    discardedEnergy += std::max(0.L, blockEnergy - retainedEnergy);
     if (rank == 0) continue;
     for (int j = 0; j < rank; ++j) {
       LIBRARY_CHECK(cudaMemcpyAsync(validationU + int64_t(j) * M, dU + b * strideU + int64_t(order[j]) * M,
@@ -123,6 +131,7 @@ int run(int argc, char* argv[]) {
   }
   LIBRARY_CHECK(vendor_norm(blas, elements, dA, 1, &error));
   error = norm == 0. ? 0. : error / norm;
+  const double energyError = norm == 0. ? 0. : std::sqrt(discardedEnergy) / norm;
   if (!std::isfinite(error)) throw std::runtime_error("KBLAS reconstruction produced a nonfinite residual");
   LIBRARY_CHECK(cudaFree(validationV));
   LIBRARY_CHECK(cudaFree(validationU));
@@ -150,8 +159,9 @@ int run(int argc, char* argv[]) {
   const auto bounds = std::minmax_element(ranks.begin(), ranks.end());
   const double meanRank = double(std::accumulate(ranks.begin(), ranks.end(), int64_t(0))) / double(batchN);
   std::printf("KBLAS-DGERSVD-BATCH [M=%ld,N=%ld,K=%ld,batchN=%ld] [eps=%.3le] [seed=%ld] "
-    "[err_UVT=%.12le] [rank_min=%d,rank_mean=%.3f,rank_max=%d] [kernel=%lf ms] [flops=%.6le] [%lf GFlops]\n",
-    M, N, K, batchN, eps, seed, error, *bounds.first, meanRank, *bounds.second,
+    "[err_UVT=%.12le] [err_energy=%.12le] [rank_min=%d,rank_mean=%.3f,rank_max=%d] "
+    "[kernel=%lf ms] [flops=%.6le] [%lf GFlops]\n",
+    M, N, K, batchN, eps, seed, error, energyError, *bounds.first, meanRank, *bounds.second,
     kernelTime, flops, (1.e-6 * flops) / kernelTime);
 
   LIBRARY_CHECK(cudaEventDestroy(start));

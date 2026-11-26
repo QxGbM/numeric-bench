@@ -97,6 +97,10 @@ reconstruction is `U*V^T`. Singular values must not be multiplied into these
 factors again. Validation sorts the returned singular values and the
 corresponding factor columns, applies the same Frobenius-tail truncation rule
 as GESVD, and reports the concatenated relative residual as `err_UVT`.
+For `err_energy`, validation subtracts the sum of the squared retained
+singular values from each block's squared Frobenius norm and floors negative
+differences at zero. It sums the discarded energies across the batch,
+takes the square root, and divides by the Frobenius norm of the full input.
 `eps` affects validation only, and a rank cap can prevent the requested
 tolerance from being reached.
 
