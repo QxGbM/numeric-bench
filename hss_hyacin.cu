@@ -8,12 +8,13 @@ class DenseMatrixCustom : public DenseMatrix<T> {
   using Base = DenseMatrix<T>;
   using DeviceScalar = HssDeviceScalar<T>;
   using Base::blas;
-  using Base::stream;
   using Base::compressWith;
 protected:
   hyacinHandle_t handle{};
 
 public:
+  using Base::stream;
+
   DenseMatrixCustom(long long localM, long long N, ncclComm_t ncclPrime, ncclComm_t ncclSub,
                     cublasHandle_t blas, cusolverDnHandle_t solver, cudaStream_t stream)
     : Base(localM, N, ncclPrime, ncclSub, blas, solver, stream) {

@@ -7,7 +7,6 @@ class DenseMatrixCustom : public DenseMatrix<T> {
   using Base = DenseMatrix<T>;
   using DeviceScalar = HssDeviceScalar<T>;
   using Base::blas;
-  using Base::stream;
   using Base::compressWith;
   using Base::solver;
   cusolverDnParams_t params = nullptr;
@@ -25,6 +24,8 @@ class DenseMatrixCustom : public DenseMatrix<T> {
   };
 
 public:
+  using Base::stream;
+
   int K = 200;
   int oversampling = 0;
   int power_iters = 0;

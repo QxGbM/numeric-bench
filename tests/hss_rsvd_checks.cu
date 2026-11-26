@@ -15,19 +15,18 @@ template <class T>
 class TestMatrix : public DenseMatrixCustom<T> {
   using TestBackend = DenseMatrixCustom<T>;
   using TestBackend::A;
-  using DenseMatrix<T>::stream;
 
 public:
   using TestBackend::TestBackend;
   void setStored(const std::vector<T>& values) {
     require(values.size() == A.size(), "Invalid test matrix dimensions");
     CUDA_CHECK(cudaMemcpyAsync(deviceData(A), values.data(), values.size() * sizeof(T),
-                               cudaMemcpyHostToDevice, stream));
-    CUDA_CHECK(cudaStreamSynchronize(stream));
+                               cudaMemcpyHostToDevice, this->stream));
+    CUDA_CHECK(cudaStreamSynchronize(this->stream));
   }
   std::vector<T> stored() const {
     std::vector<T> result(A.size());
-    copyToHost(result.data(), deviceData(A), result.size() * sizeof(T), stream);
+    copyToHost(result.data(), deviceData(A), result.size() * sizeof(T), this->stream);
     return result;
   }
 };
