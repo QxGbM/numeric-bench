@@ -16,7 +16,9 @@
 #include <type_traits>
 #include <utility>
 #include <cassert>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <string_view>
 
@@ -1338,13 +1340,23 @@ static void runHssBenchmark(long long Nbody, long long leaf_size, Configure conf
   matvec_time = MPI_Wtime() - matvec_time;
   double cerr = matA.solveRelErr(&X1[0], &X2[0]);
 
+  unsigned long long localScalars = 0, storedScalars = 0;
+  for (const auto& level : matA.A)
+    localScalars += level.U.size() + level.V.size() + level.A.size() + level.C.size();
+  MPI_Reduce(&localScalars, &storedScalars, 1, MPI_UNSIGNED_LONG_LONG, MPI_SUM, 0, world);
+
   if (mpi_rank == 0) {
     int mpi_size = 1;
     MPI_Comm_size(world, &mpi_size);
+    const auto denseScalars = static_cast<unsigned long long>(Nbody) * Nbody;
+    std::ostringstream storagePercent;
+    storagePercent << std::fixed << std::setprecision(2) << 100. * storedScalars / denseScalars;
     std::cout << "Active MPI processes: " << mpi_size << std::endl;
     std::cout << "Matrix Order: " << Nbody << " Leaf-size: " << leaf_size
               << " Data: " << (hssComplex<T> ? 'Z' : 'D') << std::endl;
     report(denseA);
+    std::cout << "HSS scalars stored: " << storedScalars << " / "
+              << denseScalars << " (" << storagePercent.str() << "%)" << std::endl;
     std::cout << "Construct Err: " << cerr << std::endl;
     std::cout << " HSS  Construct Time: " << h2_construct_time << std::endl;
     std::cout << " HSS  Matvec Time: " << matvec_time << std::endl;

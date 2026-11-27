@@ -199,6 +199,12 @@ original positional forms also work, with `data` passed as a named argument.
 before HSS construction. The reported error compares the HSS and dense
 matvec results for one deterministic random right-hand side.
 
+`HSS scalars stored` compares the total lengths of the `U`, `V`, `A`, and
+`C` vectors across all levels and active MPI ranks with the dense matrix's
+`N*N` entries. Replicas count once per rank that stores them. Each entry
+counts as one scalar of the selected real or complex type.
+Both HSS and BLR report the stored count as a percentage of dense storage.
+
 All benchmarks require MPI and a Hyacin installation built with NCCL. CMake
 always builds the dense and HSS targets and links MPI; no MPI/NCCL feature flags
 are needed. Both `bootstrap_posix_fork` and `bootstrap_mpi` are always available

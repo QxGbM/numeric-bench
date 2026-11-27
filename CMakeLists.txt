@@ -34,7 +34,7 @@ set(cpp_sources
   xlra_hyacin.cpp xsvd_hyacin.cpp xgevd_vendor.cpp xsvd_1drow_hyacin.cpp bootstrap_check.cpp
   tests/vendor_checks.cpp tests/hyacin_checks.cpp)
 set(cu_sources
-  hss_cusolver.cu hss_rsvd.cu hss_hyacin.cu
+  blr_cusolver.cu hss_cusolver.cu hss_rsvd.cu hss_hyacin.cu
   tests/hss_rsvd_checks.cu tests/hss_hyacin_checks.cu)
 
 enable_testing()
