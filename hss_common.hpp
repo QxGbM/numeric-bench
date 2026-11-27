@@ -101,9 +101,9 @@ public:
 class Cell {
 public:
   std::array<long long, 2> Child, N;
-  std::array<double, 3> R, C;
+  std::array<double, 3> R;
 
-  Cell() : Child(std::array<long long, 2>{ -1, -1 }), N(std::array<long long, 2>{ -1, -1 }), R(std::array<double, 3>{ 0., 0., 0. }), C(std::array<double, 3>{ 0., 0., 0. }) {}
+  Cell() : Child(std::array<long long, 2>{ -1, -1 }), N(std::array<long long, 2>{ -1, -1 }), R(std::array<double, 3>{ 0., 0., 0. }) {}
 };
 
 class CSR {
@@ -1113,7 +1113,7 @@ static inline void gen_matrix(const Helmholtz3D& eval, long long m, long long n,
 static inline void buildBinaryTree(Cell* cells, double* bodies, long long nbodies, long long levels) {
   cells[0].N[0] = 0;
   cells[0].N[1] = nbodies;
-  auto get_bounds = [=](double* bodies, long long nbodies, double R[], double C[]) {
+  auto get_bounds = [=](double* bodies, long long nbodies, double R[]) {
     const std::array<double, 3>* bodies3 = (const std::array<double, 3>*)(&bodies[0]);
     const std::array<double, 3>* bodies3_end = (const std::array<double, 3>*)(&bodies[nbodies * 3]);
     double Xmin[3], Xmax[3];
@@ -1122,10 +1122,9 @@ static inline void buildBinaryTree(Cell* cells, double* bodies, long long nbodie
         [=](const std::array<double, 3>& x, const std::array<double, 3>& y) { return x[i] < y[i]; });
       Xmin[i] = (*minmax.first)[i]; Xmax[i] = (*minmax.second)[i];
     }
-    std::transform(Xmin, &Xmin[3], Xmax, C, [](double min, double max) { return (min + max) * 0.5; });
     std::transform(Xmin, &Xmin[3], Xmax, R, [](double min, double max) { return (min == max && min == 0.) ? 0. : ((max - min) * 0.5 + 1.e-8); });
   };
-  get_bounds(bodies, nbodies, cells[0].R.data(), cells[0].C.data());
+  get_bounds(bodies, nbodies, cells[0].R.data());
 
   long long nleaf = 1ll << levels;
   for (long long i = 0; i < nleaf - 1; i++) {
@@ -1151,8 +1150,8 @@ static inline void buildBinaryTree(Cell* cells, double* bodies, long long nbodie
     c1.N[0] = loc;
     c1.N[1] = i_end;
 
-    get_bounds(&bodies[i_begin * 3], loc - i_begin, c0.R.data(), c0.C.data());
-    get_bounds(&bodies[loc * 3], i_end - loc, c1.R.data(), c1.C.data());
+    get_bounds(&bodies[i_begin * 3], loc - i_begin, c0.R.data());
+    get_bounds(&bodies[loc * 3], i_end - loc, c1.R.data());
   }
 }
 

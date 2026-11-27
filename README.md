@@ -176,6 +176,24 @@ GESVDR benchmarks share these formulas. Distributed Hyacin SVD uses global `M`
 and the existing time averaged across GPUs and repetitions, including the
 communication segment; its throughput is for the whole problem.
 
+# BLR construction benchmarks
+
+`blr_cusolver.app` and `blr_hyacin.app` build a complex FP64 BLR matrix from
+the same distributed dense Helmholtz matrix. They compare the BLR matvec with
+the blocked dense result and report construction time and storage. Both keep
+diagonal tiles dense and use dense storage whenever low-rank factors would
+take up at least as much space.
+Compressed tiles store factors `U` and `V` and apply them as `U*V^H`.
+
+```sh
+CUDA_VISIBLE_DEVICES=0,1 mpiexec -n 2 ./build/blr_hyacin.app N=2048 leaf_size=256 eps=1e-10 data=Z
+```
+
+The defaults are `N=2048`, `leaf_size=256`, `eps=1e-10`, and `data=Z`.
+The positional form `N leaf_size eps` is also supported. The Hyacin benchmark
+computes a right basis for each local off-diagonal tile and forms the compact
+left factor as `A*V`.
+
 # HSS construction benchmark
 
 `hss_cusolver.app` constructs a real or complex FP64 HSS representation from a distributed
